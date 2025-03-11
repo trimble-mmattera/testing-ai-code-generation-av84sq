@@ -1,0 +1,184 @@
+# golangci-lint configuration for Document Management Platform
+# This file enforces code quality standards and ensures consistency across the codebase.
+# Version: golangci-lint v1.50.0
+
+# Linters configuration
+linters:
+  enable:
+    - deadcode
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unused
+    - varcheck
+    - bodyclose
+    - depguard
+    - dogsled
+    - dupl
+    - exportloopref
+    - funlen
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - gofmt
+    - goimports
+    - gosec
+    - misspell
+    - nakedret
+    - prealloc
+    - revive
+    - stylecheck
+    - unconvert
+    - unparam
+    - whitespace
+  disable:
+    - gochecknoglobals
+    - lll
+    - maligned
+    - wsl
+  presets:
+    - bugs
+    - unused
+    - format
+    - style
+    - complexity
+    - performance
+  fast: false
+
+# Linter settings
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  govet:
+    check-shadowing: true
+    settings:
+      printf:
+        funcs:
+          - (*github.com/document-management/backend/pkg/logger.Logger).Infof
+          - (*github.com/document-management/backend/pkg/logger.Logger).Warnf
+          - (*github.com/document-management/backend/pkg/logger.Logger).Errorf
+          - (*github.com/document-management/backend/pkg/logger.Logger).Fatalf
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  depguard:
+    list-type: blacklist
+    packages:
+      - github.com/sirupsen/logrus
+    include-go-root: false
+  misspell:
+    locale: US
+  funlen:
+    lines: 100
+    statements: 50
+  gosec:
+    excludes:
+      - G104
+  goimports:
+    local-prefixes: github.com/document-management/backend
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - hugeParam
+      - rangeValCopy
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+      - name: var-naming
+        severity: warning
+        disabled: false
+      - name: package-comments
+        severity: warning
+        disabled: false
+      - name: dot-imports
+        severity: warning
+        disabled: false
+      - name: blank-imports
+        severity: warning
+        disabled: false
+      - name: unexported-return
+        severity: warning
+        disabled: false
+      - name: unexported-naming
+        severity: warning
+        disabled: false
+      - name: indent-error-flow
+        severity: warning
+        disabled: false
+
+# Issues configuration
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+        - funlen
+    - path: mock_.+\.go
+      linters:
+        - dupl
+        - gosec
+        - funlen
+        - unused
+        - unparam
+    - text: "G404: Use of weak random number generator"
+      linters:
+        - gosec
+      path: test/
+  exclude-use-default: false
+  exclude-dirs:
+    - vendor
+    - test/testdata
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: true
+  new-from-rev: ""
+  fix: false
+
+# Run configuration
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  build-tags: []
+  skip-dirs:
+    - vendor
+    - test/testdata
+  skip-files:
+    - .*\.pb\.go$
+  allow-parallel-runners: true
+  go: "1.21"
+
+# Output configuration
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
+
+# Severity configuration
+severity:
+  default-severity: error
+  case-sensitive: false
+  rules:
+    - linters:
+        - gosec
+      severity: warning
