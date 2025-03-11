@@ -1,0 +1,173 @@
+# Production configuration for Document Management Platform
+# This file contains production-specific settings that override the default configuration
+
+# Environment identifier
+environment: production
+
+# HTTP Server configuration - optimized for production
+server:
+  host: 0.0.0.0
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+  tls: true
+  cert_file: /etc/certs/server.crt
+  key_file: /etc/certs/server.key
+
+# Logging configuration - production settings
+log:
+  level: warn
+  format: json
+  output: file
+  enable_console: false
+  enable_file: true
+  file_path: /var/log/document-mgmt/app.log
+
+# Database configuration - production PostgreSQL
+database:
+  host: document-db.cluster.amazonaws.com
+  port: 5432
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  dbname: document_mgmt_prod
+  sslmode: verify-full
+  max_open_conns: 50
+  max_idle_conns: 25
+  conn_max_lifetime: 30m
+
+# Storage configuration - production S3
+storage:
+  region: us-east-1
+  endpoint: ""
+  access_key: ${S3_ACCESS_KEY}
+  secret_key: ${S3_SECRET_KEY}
+  bucket: company-document-mgmt-prod
+  temp_bucket: company-document-mgmt-temp-prod
+  quarantine_bucket: company-document-mgmt-quarantine-prod
+  use_ssl: true
+  force_path_style: false
+
+# Elasticsearch configuration - production cluster
+elasticsearch:
+  addresses:
+    - https://search-document-mgmt-prod.us-east-1.es.amazonaws.com
+  username: ${ES_USER}
+  password: ${ES_PASSWORD}
+  enable_sniff: true
+  index_prefix: documents_prod
+
+# JWT Authentication configuration - production keys
+jwt:
+  secret: ${JWT_SECRET}
+  public_key: /etc/document-mgmt/keys/jwt_public.pem
+  private_key: /etc/document-mgmt/keys/jwt_private.pem
+  issuer: document-mgmt-prod
+  expiration_time: 1h
+  algorithm: RS256
+
+# ClamAV virus scanning configuration - production service
+clamav:
+  host: clamav-service.document-mgmt.svc.cluster.local
+  port: 3310
+  timeout: 120
+
+# AWS SQS configuration - production queues
+sqs:
+  region: us-east-1
+  endpoint: ""
+  access_key: ${SQS_ACCESS_KEY}
+  secret_key: ${SQS_SECRET_KEY}
+  document_queue_url: https://sqs.us-east-1.amazonaws.com/123456789012/document-queue-prod
+  scan_queue_url: https://sqs.us-east-1.amazonaws.com/123456789012/scan-queue-prod
+  index_queue_url: https://sqs.us-east-1.amazonaws.com/123456789012/index-queue-prod
+  use_ssl: true
+
+# AWS SNS configuration - production topics
+sns:
+  region: us-east-1
+  endpoint: ""
+  access_key: ${SNS_ACCESS_KEY}
+  secret_key: ${SNS_SECRET_KEY}
+  document_topic_arn: arn:aws:sns:us-east-1:123456789012:document-topic-prod
+  event_topic_arn: arn:aws:sns:us-east-1:123456789012:event-topic-prod
+  use_ssl: true
+
+# Redis caching configuration - production instance
+redis:
+  address: document-mgmt-redis.example.com:6379
+  password: ${REDIS_PASSWORD}
+  db: 0
+  pool_size: 50
+  min_idle_conns: 20
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+# API rate limiting - production limits
+rate_limiter:
+  enabled: true
+  requests_per_minute: 300
+  burst_size: 450
+
+# CORS configuration - production security
+cors:
+  allowed_origins:
+    - "https://api.example.com"
+    - "https://admin.example.com"
+  allowed_methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowed_headers:
+    - Authorization
+    - Content-Type
+    - X-Requested-With
+  exposed_headers:
+    - Content-Length
+    - Content-Type
+    - X-Request-ID
+  allow_credentials: true
+  max_age: 86400
+
+# Metrics configuration - production monitoring
+metrics:
+  enabled: true
+  endpoint: /metrics
+  namespace: document_mgmt_prod
+
+# Distributed tracing configuration - production tracing
+tracing:
+  enabled: true
+  provider: jaeger
+  endpoint: http://jaeger-collector.monitoring.svc.cluster.local:14268/api/traces
+  service_name: document-mgmt-prod
+  sample_rate: 0.05
+
+# Document limits - production settings
+document_limits:
+  max_file_size: 104857600  # 100MB in bytes
+  allowed_mime_types:
+    - application/pdf
+    - application/msword
+    - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+    - application/vnd.ms-excel
+    - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    - application/vnd.ms-powerpoint
+    - application/vnd.openxmlformats-officedocument.presentationml.presentation
+    - image/jpeg
+    - image/png
+    - image/gif
+    - image/tiff
+    - text/plain
+    - text/csv
+    - application/rtf
+    - application/json
+    - application/xml
+    - application/zip
+    - application/x-rar-compressed
+    - application/x-tar
+    - application/gzip
+  max_batch_size: 10
