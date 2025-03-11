@@ -1,0 +1,175 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: api
+        VERSION: 'dev'
+        GIT_COMMIT: 'dev'
+        BUILD_DATE: 'dev'
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/app
+      - ./config:/app/config
+    environment:
+      - ENV=development
+      - CONFIG_FILE=/app/config/development.yml
+      - LOG_LEVEL=debug
+      - GO111MODULE=on
+      - CGO_ENABLED=0
+    depends_on:
+      - postgres
+      - elasticsearch
+      - redis
+      - clamav
+      - localstack
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: worker
+        VERSION: 'dev'
+        GIT_COMMIT: 'dev'
+        BUILD_DATE: 'dev'
+    volumes:
+      - ./:/app
+      - ./config:/app/config
+    environment:
+      - ENV=development
+      - CONFIG_FILE=/app/config/development.yml
+      - LOG_LEVEL=debug
+      - GO111MODULE=on
+      - CGO_ENABLED=0
+    depends_on:
+      - postgres
+      - elasticsearch
+      - redis
+      - clamav
+      - localstack
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  postgres:
+    image: postgres:14.0 # postgres version 14.0
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=document_mgmt
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  elasticsearch:
+    image: elasticsearch:8.0 # elasticsearch version 8.0
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  redis:
+    image: redis:6.2 # redis version 6.2
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--requirepass", "changeme"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav:latest # clamav version latest
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/bin/clamdscan", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+  localstack:
+    image: localstack/localstack:latest # localstack version latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs,sns
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+    volumes:
+      - localstack_data:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  redis_data:
+    driver: local
+  clamav_data:
+    driver: local
+  localstack_data:
+    driver: local
+
+networks:
+  document_mgmt_network:
+    driver: bridge
