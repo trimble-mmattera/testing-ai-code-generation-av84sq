@@ -1,0 +1,99 @@
+# =============================================================================
+# Kibana Configuration for Document Management Platform
+# Version: 8.6.0
+# =============================================================================
+# This configuration file defines the settings for the Kibana instance used in
+# the Document Management Platform's monitoring infrastructure.
+
+# =============================================================================
+# Server settings
+# =============================================================================
+server.name: document-mgmt-kibana
+server.host: 0.0.0.0
+server.port: 5601
+server.publicBaseUrl: ${KIBANA_PUBLIC_URL}
+server.maxPayloadBytes: 10485760
+server.rewriteBasePath: true
+
+# =============================================================================
+# Elasticsearch connection settings
+# =============================================================================
+elasticsearch.hosts: ['${ELASTICSEARCH_HOSTS}']
+elasticsearch.username: ${ELASTICSEARCH_USERNAME}
+elasticsearch.password: ${ELASTICSEARCH_PASSWORD}
+elasticsearch.requestTimeout: 30000
+elasticsearch.shardTimeout: 30000
+elasticsearch.ssl.verificationMode: certificate
+
+# =============================================================================
+# Kibana application settings
+# =============================================================================
+kibana.index: .kibana
+kibana.defaultAppId: discover
+kibana.autocompleteTimeout: 1000
+kibana.autocompleteTerminateAfter: 100000
+
+# =============================================================================
+# Security settings
+# =============================================================================
+xpack.security.enabled: true
+xpack.security.encryptionKey: ${ENCRYPTION_KEY}
+xpack.security.session.idleTimeout: 1h
+xpack.security.session.lifespan: 24h
+xpack.security.audit.enabled: true
+
+# =============================================================================
+# Reporting settings
+# =============================================================================
+xpack.reporting.enabled: true
+xpack.reporting.kibanaServer.hostname: localhost
+xpack.reporting.capture.timeout: 30s
+xpack.reporting.csv.maxSizeBytes: 10485760
+
+# =============================================================================
+# Monitoring settings
+# =============================================================================
+xpack.monitoring.enabled: true
+xpack.monitoring.kibana.collection.enabled: true
+xpack.monitoring.ui.container.elasticsearch.enabled: true
+
+# =============================================================================
+# Logging configuration
+# =============================================================================
+logging.root.level: info
+logging.appenders.file.type: file
+logging.appenders.file.fileName: /var/log/kibana/kibana.log
+logging.appenders.file.layout.type: json
+
+# =============================================================================
+# Saved objects configuration
+# =============================================================================
+savedObjects.maxImportPayloadBytes: 26214400
+savedObjects.maxImportExportSize: 10000
+
+# =============================================================================
+# Telemetry settings
+# =============================================================================
+telemetry.enabled: false
+
+# =============================================================================
+# Map settings
+# =============================================================================
+map.includeElasticMapsService: false
+
+# =============================================================================
+# Spaces settings
+# =============================================================================
+xpack.spaces.enabled: true
+xpack.spaces.maxSpaces: 50
+
+# =============================================================================
+# Alerting settings
+# =============================================================================
+xpack.alerting.enabled: true
+
+# =============================================================================
+# Actions settings
+# =============================================================================
+xpack.actions.enabled: true
+xpack.actions.preconfiguredAlertHistoryEsIndex: true
