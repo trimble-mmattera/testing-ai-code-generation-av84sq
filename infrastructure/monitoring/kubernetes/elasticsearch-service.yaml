@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Elasticsearch service for Document Management Platform monitoring"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9200"
+    prometheus.io/path: "/_prometheus/metrics"
+  labels:
+    app: elasticsearch
+    component: monitoring
+    part-of: document-management-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: elasticsearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+      protocol: TCP
+    - name: transport
+      port: 9300
+      targetPort: 9300
+      protocol: TCP
+  sessionAffinity: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-headless
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Headless service for Elasticsearch cluster node discovery"
+  labels:
+    app: elasticsearch
+    component: monitoring
+    part-of: document-management-platform
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: elasticsearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+      protocol: TCP
+    - name: transport
+      port: 9300
+      targetPort: 9300
+      protocol: TCP
+  publishNotReadyAddresses: true
