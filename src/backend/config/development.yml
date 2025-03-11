@@ -1,0 +1,118 @@
+# Development environment configuration for Document Management Platform
+# This file overrides default settings for local development purposes
+
+# Environment identifier
+environment: development
+
+# HTTP Server configuration
+server:
+  host: 0.0.0.0
+  port: 8080
+  read_timeout: 60s
+  write_timeout: 60s
+  idle_timeout: 180s
+  tls: false
+
+# Logging configuration
+log:
+  level: debug
+  format: console
+  enable_console: true
+
+# Database configuration (PostgreSQL)
+database:
+  host: localhost
+  port: 5432
+  user: dev_user
+  password: dev_password
+  dbname: document_mgmt_dev
+  sslmode: disable
+
+# Storage configuration (AWS S3 via LocalStack)
+s3:
+  region: us-east-1
+  endpoint: http://localhost:4566
+  access_key: test
+  secret_key: test
+  bucket: document-mgmt-docs-dev
+  temp_bucket: document-mgmt-temp-dev
+  quarantine_bucket: document-mgmt-quarantine-dev
+  use_ssl: false
+  force_path_style: true
+
+# Elasticsearch configuration
+elasticsearch:
+  addresses:
+    - http://localhost:9200
+  username: ""
+  password: ""
+  index_prefix: documents-dev
+  enable_sniff: false
+
+# JWT Authentication configuration
+jwt:
+  secret: dev_secret_key
+  public_key: ./keys/dev_jwt_public.pem
+  private_key: ./keys/dev_jwt_private.pem
+  issuer: document-mgmt-dev
+  expiration_time: 168h
+
+# ClamAV virus scanning configuration
+clamav:
+  host: localhost
+  port: 3310
+  timeout: 120
+
+# AWS SQS configuration (via LocalStack)
+sqs:
+  region: us-east-1
+  endpoint: http://localhost:4566
+  access_key: test
+  secret_key: test
+  document_queue_url: http://localhost:4566/000000000000/document-queue-dev
+  scan_queue_url: http://localhost:4566/000000000000/scan-queue-dev
+  index_queue_url: http://localhost:4566/000000000000/index-queue-dev
+  use_ssl: false
+
+# AWS SNS configuration (via LocalStack)
+sns:
+  region: us-east-1
+  endpoint: http://localhost:4566
+  access_key: test
+  secret_key: test
+  document_topic_arn: arn:aws:sns:us-east-1:000000000000:document-topic-dev
+  event_topic_arn: arn:aws:sns:us-east-1:000000000000:event-topic-dev
+  use_ssl: false
+
+# Redis caching configuration
+redis:
+  address: localhost:6379
+  password: ""
+  db: 0
+
+# API rate limiting - disabled for development
+rate_limiter:
+  enabled: false
+  requests_per_minute: 1000
+
+# CORS configuration - permissive for development
+cors:
+  allowed_origins:
+    - "*"
+  allow_credentials: true
+
+# Metrics configuration
+metrics:
+  enabled: true
+  endpoint: /metrics
+
+# Distributed tracing configuration - higher sampling for development
+tracing:
+  enabled: true
+  endpoint: http://localhost:14268/api/traces
+  sample_rate: 1.0
+
+# Document limits - higher for development testing
+document_limits:
+  max_file_size: 209715200  # 200MB in bytes
+  max_batch_size: 20
