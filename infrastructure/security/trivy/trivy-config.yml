@@ -1,0 +1,80 @@
+# Trivy Scanner Configuration
+# Version: 0.42.0
+# This configuration file is used by both Kubernetes CronJobs and CI/CD pipelines
+# to ensure consistent vulnerability scanning across environments.
+
+# Severity levels to report
+severity: CRITICAL,HIGH,MEDIUM
+
+# Output formats
+format:
+  - table
+  - json
+
+# Output file location
+output: /tmp/trivy-results.json
+
+# Scanning timeout
+timeout: 30m
+
+# Exit code behavior (0 means don't exit with error even if vulnerabilities are found)
+exit-code: 0
+
+# Cache directory
+cache-dir: /root/.cache
+
+# Ignore vulnerabilities with no available fixes
+ignore-unfixed: true
+
+# Disable progress bar
+no-progress: true
+
+# Directories to skip
+skip-dirs:
+  - node_modules
+  - vendor
+  - test/testdata
+
+# Files to skip
+skip-files:
+  - "**/*.md"
+  - "**/*.txt"
+
+# Vulnerability types to scan
+vuln-type:
+  - os
+  - library
+
+# Compliance configuration
+compliance:
+  standards:
+    - soc2
+    - iso27001
+  report-file: /tmp/compliance-report.json
+
+# Database configuration
+db:
+  repository: ghcr.io/aquasecurity/trivy-db
+  cache: true
+
+# Server configuration
+server:
+  token-header: Trivy-Token
+  token: ${TRIVY_TOKEN}
+
+# Scan targets and patterns
+scan:
+  target:
+    - ecr.repository/document-mgmt-api:latest
+    - ecr.repository/document-mgmt-worker:latest
+  file-patterns:
+    golang:
+      - "**/*.go"
+    dockerfile:
+      - "**/Dockerfile*"
+
+# Reporting configuration
+report:
+  s3-bucket: document-mgmt-security-scans
+  s3-prefix: trivy-scans
+  notification-topic: arn:aws:sns:us-west-2:123456789012:trivy-scan-notifications
