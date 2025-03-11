@@ -1,0 +1,73 @@
+# Configuration file for Grafana datasources used by the Document Management Platform
+# This file defines connections to various monitoring backends like Prometheus,
+# Elasticsearch, and other data sources that power the monitoring dashboards.
+
+apiVersion: 1
+
+# List of data sources to be configured
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus-server:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+    editable: true
+
+  - name: Elasticsearch
+    type: elasticsearch
+    uid: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    database: "[document-mgmt-logs-]YYYY.MM.DD"
+    jsonData:
+      interval: Daily
+      timeField: "@timestamp"
+      esVersion: 8.0.0
+      maxConcurrentShardRequests: 5
+      logMessageField: message
+      logLevelField: level
+    editable: true
+
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    access: proxy
+    url: http://jaeger-query:16686
+    jsonData:
+      nodeGraph:
+        enabled: true
+    editable: true
+
+  - name: CloudWatch
+    type: cloudwatch
+    uid: cloudwatch
+    access: proxy
+    jsonData:
+      authType: default
+      defaultRegion: us-east-1
+    editable: true
+
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    access: proxy
+    url: postgres-exporter:5432
+    database: document_mgmt
+    user: ${POSTGRES_USER}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    editable: true
+
+# List of data sources to be deleted
+deleteDatasources:
+  - name: Graphite
+    orgId: 1
