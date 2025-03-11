@@ -1,0 +1,152 @@
+# Jaeger distributed tracing configuration for Document Management Platform
+# Version: 1.38.0
+
+version: '1.38.0'
+service_name: 'document-mgmt-platform'
+
+# Collector configuration
+collector:
+  replicas: 2  # For high availability
+  resources:
+    limits:
+      cpu: '1'
+      memory: '1Gi'
+    requests:
+      cpu: '500m'
+      memory: '512Mi'
+  ports:
+    grpc: 14250
+    http: 14268
+    zipkin: 9411
+  options:
+    log-level: 'info'
+    collector.queue-size: 1000
+    collector.num-workers: 50
+    collector.http-server.host-port: ':14268'
+    collector.grpc-server.host-port: ':14250'
+    collector.zipkin.host-port: ':9411'
+
+# Query service configuration
+query:
+  replicas: 2  # For high availability
+  resources:
+    limits:
+      cpu: '1'
+      memory: '1Gi'
+    requests:
+      cpu: '500m'
+      memory: '512Mi'
+  ports:
+    http: 16686
+  options:
+    log-level: 'info'
+    query.base-path: '/jaeger'
+    query.max-clock-skew-adjustment: '10s'
+    query.ui-config: '/etc/jaeger/ui-config.json'
+  ui_config:
+    tracking:
+      gaID: ''
+      trackErrors: true
+    menu:
+      - label: 'Document Management Platform'
+        url: '/'
+    dependencies:
+      menuEnabled: true
+    search:
+      maxLookback:
+        label: '2 Days'
+        value: '2d'
+
+# Agent configuration
+agent:
+  strategy: 'daemonset'  # One agent per node
+  resources:
+    limits:
+      cpu: '500m'
+      memory: '512Mi'
+    requests:
+      cpu: '100m'
+      memory: '128Mi'
+  ports:
+    zipkin-compact: 5775
+    thrift-compact: 6831
+    thrift-binary: 6832
+    config-rest: 5778
+  options:
+    log-level: 'info'
+    reporter.grpc.host-port: 'jaeger-collector:14250'
+    reporter.type: 'grpc'
+    reporter.queue-size: 1000
+    reporter.batch-size: 100
+
+# Sampling configuration
+sampling:
+  default_strategy:
+    type: 'probabilistic'
+    param: 0.1  # 10% sampling rate as required
+  service_strategies:
+    - service: 'document-service'
+      type: 'probabilistic'
+      param: 0.1
+    - service: 'storage-service'
+      type: 'probabilistic'
+      param: 0.1
+    - service: 'search-service'
+      type: 'probabilistic'
+      param: 0.1
+    - service: 'folder-service'
+      type: 'probabilistic'
+      param: 0.1
+    - service: 'virus-scanning-service'
+      type: 'probabilistic'
+      param: 0.1
+    - service: 'api-gateway'
+      type: 'probabilistic'
+      param: 0.1
+
+# Storage configuration
+storage:
+  type: 'elasticsearch'  # Using ES for storage
+  elasticsearch:
+    server-urls: 'http://elasticsearch:9200'
+    username: '${ES_USERNAME}'
+    password: '${ES_PASSWORD}'
+    index-prefix: 'jaeger'
+    max-span-age: '72h'
+    max-doc-count: 10000
+    sniffer: false
+    timeout: '5s'
+    tls:
+      enabled: false
+      skip-host-verify: false
+      server-name: ''
+
+# Ingress configuration for web access
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: 'nginx'
+    nginx.ingress.kubernetes.io/rewrite-target: '/$1'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+  hosts:
+    - 'monitoring.${DOMAIN_NAME}'
+  path: '/jaeger/(.*)'
+  tls:
+    enabled: true
+    secretName: 'monitoring-tls'
+
+# Propagation configuration
+propagation:
+  formats:
+    - 'jaeger'
+    - 'w3c'  # W3C Trace Context for interoperability
+
+# Security configuration
+security:
+  enabled: true
+  authentication:
+    enabled: true
+    type: 'oauth'
+  authorization:
+    enabled: true
+    type: 'rbac'
