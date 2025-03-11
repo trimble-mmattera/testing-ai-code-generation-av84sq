@@ -1,0 +1,401 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: monitoring
+data:
+  prometheus.yml: |
+    # Global configuration
+    global:
+      scrape_interval: 15s     # How frequently to scrape targets
+      evaluation_interval: 15s # How frequently to evaluate rules
+      scrape_timeout: 10s      # How long until a scrape request times out
+
+    # Alertmanager configuration
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets:
+          - alertmanager:9093
+        scheme: http
+        timeout: 5s
+        api_version: v2
+
+    # Load rules once and periodically evaluate them
+    rule_files:
+      - alert-rules.yml
+
+    # Scrape configurations
+    scrape_configs:
+      # Self-monitoring of Prometheus
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Kubernetes API servers
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # Kubernetes nodes
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+
+      # Kubernetes pods with Prometheus annotations
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+      # Document Service
+      - job_name: 'document-service'
+        kubernetes_sd_configs:
+          - role: service
+            namespaces:
+              names:
+                - document-mgmt-prod
+                - document-mgmt-staging
+                - document-mgmt-dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: document-service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Storage Service
+      - job_name: 'storage-service'
+        kubernetes_sd_configs:
+          - role: service
+            namespaces:
+              names:
+                - document-mgmt-prod
+                - document-mgmt-staging
+                - document-mgmt-dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: storage-service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Search Service
+      - job_name: 'search-service'
+        kubernetes_sd_configs:
+          - role: service
+            namespaces:
+              names:
+                - document-mgmt-prod
+                - document-mgmt-staging
+                - document-mgmt-dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: search-service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Folder Service
+      - job_name: 'folder-service'
+        kubernetes_sd_configs:
+          - role: service
+            namespaces:
+              names:
+                - document-mgmt-prod
+                - document-mgmt-staging
+                - document-mgmt-dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: folder-service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Virus Scanning Service
+      - job_name: 'virus-scanning-service'
+        kubernetes_sd_configs:
+          - role: service
+            namespaces:
+              names:
+                - document-mgmt-prod
+                - document-mgmt-staging
+                - document-mgmt-dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: virus-scanning-service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Node Exporter for machine metrics
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: node-exporter
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Kube State Metrics for Kubernetes object metrics
+      - job_name: 'kube-state-metrics'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+            action: keep
+            regex: kube-state-metrics
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # CloudWatch Exporter for AWS metrics
+      - job_name: 'cloudwatch-exporter'
+        static_configs:
+          - targets: ['cloudwatch-exporter:9106']
+
+      # Elasticsearch Exporter
+      - job_name: 'elasticsearch-exporter'
+        static_configs:
+          - targets: ['elasticsearch-exporter:9114']
+
+      # PostgreSQL Exporter
+      - job_name: 'postgres-exporter'
+        static_configs:
+          - targets: ['postgres-exporter:9187']
+
+    # Remote write configuration for long-term storage with Thanos
+    remote_write:
+      - url: 'http://thanos-receive:19291/api/v1/receive'
+
+  alert-rules.yml: |
+    groups:
+      - name: service_availability
+        rules:
+        - alert: ServiceDown
+          expr: up{job=~"document-service|storage-service|search-service|folder-service|virus-scanning-service"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.job }} is down"
+            description: "Service {{ $labels.job }} in namespace {{ $labels.namespace }} has been down for more than 1 minute."
+            dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/service-down"
+        - alert: KubernetesNodeNotReady
+          expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kubernetes node {{ $labels.node }} not ready"
+            description: "Node {{ $labels.node }} has been in NotReady state for more than 5 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/kubernetes-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/node-not-ready"
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace=~"document-mgmt-.*"}[1h]) > 5
+          for: 10m
+          labels:
+            severity: high
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash looping"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted more than 5 times in the last hour."
+            dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/pod-crash-looping"
+
+      - name: api_performance
+        rules:
+        - alert: APIHighResponseTime
+          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~"document-service|storage-service|search-service|folder-service"}[5m])) by (job, le)) > 2
+          for: 5m
+          labels:
+            severity: high
+          annotations:
+            summary: "High API response time for {{ $labels.job }}"
+            description: "95th percentile response time for {{ $labels.job }} is above 2 seconds for more than 5 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/high-response-time"
+        - alert: APIHighErrorRate
+          expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) > 0.01
+          for: 5m
+          labels:
+            severity: high
+          annotations:
+            summary: "High API error rate for {{ $labels.job }}"
+            description: "Error rate for {{ $labels.job }} is above 1% for more than 5 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/high-error-rate"
+
+      - name: document_processing
+        rules:
+        - alert: DocumentProcessingDelay
+          expr: histogram_quantile(0.95, sum(rate(document_processing_duration_seconds_bucket[5m])) by (le)) > 300
+          for: 5m
+          labels:
+            severity: high
+          annotations:
+            summary: "Document processing delay detected"
+            description: "95th percentile document processing time is above 5 minutes (300 seconds) for more than 5 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/document-service-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/document-processing-delay"
+        - alert: DocumentProcessingQueueBacklog
+          expr: sum(aws_sqs_approximate_number_of_messages_visible{queue_name=~".*document.*|.*virus.*"}) > 100
+          for: 15m
+          labels:
+            severity: high
+          annotations:
+            summary: "Document processing queue backlog"
+            description: "Document processing queue has more than 100 messages for more than 15 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/document-service-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/queue-backlog"
+
+      - name: search_performance
+        rules:
+        - alert: SearchHighResponseTime
+          expr: histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket[5m])) by (le)) > 2
+          for: 5m
+          labels:
+            severity: high
+          annotations:
+            summary: "High search response time"
+            description: "95th percentile search response time is above 2 seconds for more than 5 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/search-service-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/search-performance"
+        - alert: ElasticsearchClusterHealth
+          expr: elasticsearch_cluster_health_status{color="red"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Elasticsearch cluster health is red"
+            description: "Elasticsearch cluster health has been red for more than 5 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/elasticsearch-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/elasticsearch-red"
+
+      - name: resource_utilization
+        rules:
+        - alert: HighCPUUsage
+          expr: sum(rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m])) by (pod, namespace) / sum(kube_pod_container_resource_limits{resource="cpu"}) by (pod, namespace) > 0.85
+          for: 10m
+          labels:
+            severity: high
+          annotations:
+            summary: "High CPU usage for pod {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has CPU usage above 85% of its limit for more than 10 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/kubernetes-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/high-cpu-usage"
+        - alert: HighMemoryUsage
+          expr: sum(container_memory_usage_bytes{container!="", container!="POD"}) by (pod, namespace) / sum(kube_pod_container_resource_limits{resource="memory"}) by (pod, namespace) > 0.9
+          for: 10m
+          labels:
+            severity: high
+          annotations:
+            summary: "High memory usage for pod {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has memory usage above 90% of its limit for more than 10 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/kubernetes-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/high-memory-usage"
+
+      - name: security_alerts
+        rules:
+        - alert: VirusDetected
+          expr: increase(virus_detected_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Virus detected in uploaded document"
+            description: "A virus has been detected in an uploaded document in namespace {{ $labels.namespace }}."
+            dashboard: "https://grafana.document-mgmt.com/d/security-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/virus-detected"
+        - alert: AuthenticationFailuresHigh
+          expr: sum(increase(authentication_failures_total[15m])) by (job) > 10
+          for: 5m
+          labels:
+            severity: high
+          annotations:
+            summary: "High authentication failures for {{ $labels.job }}"
+            description: "Service {{ $labels.job }} has more than 10 authentication failures in the last 15 minutes."
+            dashboard: "https://grafana.document-mgmt.com/d/security-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/auth-failures"
+
+      - name: sla_compliance
+        rules:
+        - alert: APIResponseTimeSLABreach
+          expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1h])) by (le)) > 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "API response time SLA breach"
+            description: "99th percentile API response time is above 2 seconds for more than 5 minutes, breaching the SLA."
+            dashboard: "https://grafana.document-mgmt.com/d/sla-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/sla-breach-response-time"
+        - alert: DocumentProcessingSLABreach
+          expr: histogram_quantile(0.99, sum(rate(document_processing_duration_seconds_bucket[1h])) by (le)) > 300
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Document processing SLA breach"
+            description: "99th percentile document processing time is above 5 minutes (300 seconds) for more than 5 minutes, breaching the SLA."
+            dashboard: "https://grafana.document-mgmt.com/d/sla-dashboard"
+            runbook: "https://runbooks.document-mgmt.com/sla-breach-processing"
