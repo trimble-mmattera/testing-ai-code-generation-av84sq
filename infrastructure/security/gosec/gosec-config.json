@@ -1,0 +1,47 @@
+{
+  "severity": "high,medium",
+  "confidence": "high,medium",
+  "format": "json",
+  "out": "gosec-results.json",
+  "exclude": ["G104", "G307", "G404"],
+  "exclude-dir": ["vendor", "test/testdata", "test/mockery", "test/integration", "test/e2e"],
+  "exclude-generated": true,
+  "sort": "severity",
+  "no-fail": false,
+  "tests": false,
+  "scan-tests": false,
+  "nosec": false,
+  "include": [
+    "G101", "G102", "G103", "G106", "G107", "G108", "G109", "G110",
+    "G201", "G202", "G203", "G204",
+    "G301", "G302", "G303", "G304", "G305", "G306",
+    "G401", "G402", "G403",
+    "G501", "G502", "G503", "G504", "G505"
+  ],
+  "show-ignored": false,
+  "build-tags": ["secure", "gosec"],
+  "concurrency": 4,
+  "log-level": "warn",
+  "report": {
+    "output-path": "/tmp/gosec-reports",
+    "output-format": "html,json",
+    "show-stats": true,
+    "summary-only": false
+  },
+  "rules": {
+    "G101": {
+      "pattern": "(?i)((secret|password|token|key|credential|pass|pwd))",
+      "ignore_entropy": false,
+      "entropy_threshold": 80.0
+    },
+    "G107": {
+      "url_whitelist": [
+        "https://api.example.com",
+        "https://s3.amazonaws.com"
+      ]
+    },
+    "G304": {
+      "include_dirs": ["config", "templates"]
+    }
+  }
+}
