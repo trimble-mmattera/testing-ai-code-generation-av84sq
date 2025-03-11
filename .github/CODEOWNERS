@@ -1,0 +1,87 @@
+# Format: file_pattern @user_or_team
+
+# Default owners for everything in the repo
+* @document-mgmt/lead-architects
+
+# Core domain logic
+/src/backend/domain/ @document-mgmt/backend-core
+
+# Application layer
+/src/backend/application/ @document-mgmt/backend-core
+
+# API and delivery layer
+/src/backend/api/ @document-mgmt/api-team
+
+# Infrastructure implementations
+/src/backend/infrastructure/ @document-mgmt/infrastructure
+
+# Security-related code
+/src/backend/infrastructure/auth/ @document-mgmt/security-team
+/src/backend/api/middleware/auth.go @document-mgmt/security-team
+/src/backend/api/middleware/tenant.go @document-mgmt/security-team
+
+# Storage-related code
+/src/backend/infrastructure/storage/ @document-mgmt/storage-team
+
+# Search-related code
+/src/backend/infrastructure/search/ @document-mgmt/search-team
+
+# Virus scanning implementation
+/src/backend/infrastructure/virus_scanning/ @document-mgmt/security-team
+
+# Database and persistence
+/src/backend/infrastructure/persistence/ @document-mgmt/data-team
+/src/backend/infrastructure/persistence/postgres/migrations/ @document-mgmt/data-team @document-mgmt/devops
+
+# Messaging and events
+/src/backend/infrastructure/messaging/ @document-mgmt/integration-team
+/src/backend/infrastructure/cache/ @document-mgmt/infrastructure
+
+# Configuration and utilities
+/src/backend/pkg/ @document-mgmt/backend-core
+/src/backend/config/ @document-mgmt/devops
+
+# Command-line interfaces
+/src/backend/cmd/ @document-mgmt/backend-core
+
+# Deployment and infrastructure
+/src/backend/deploy/ @document-mgmt/devops
+/infrastructure/ @document-mgmt/devops
+
+# CI/CD workflows
+/.github/workflows/ @document-mgmt/devops
+
+# Documentation
+/docs/ @document-mgmt/documentation
+
+# Tests
+/src/backend/test/ @document-mgmt/qa
+
+# Build and development scripts
+/src/backend/scripts/ @document-mgmt/devops
+
+# Docker configuration
+/src/backend/Dockerfile @document-mgmt/devops
+/src/backend/docker-compose*.yml @document-mgmt/devops
+
+# Dependency management
+/src/backend/go.mod @document-mgmt/backend-core @document-mgmt/devops
+/src/backend/go.sum @document-mgmt/backend-core @document-mgmt/devops
+
+# Monitoring and observability
+/infrastructure/monitoring/ @document-mgmt/devops @document-mgmt/sre
+
+# Security infrastructure
+/infrastructure/security/ @document-mgmt/security-team @document-mgmt/devops
+
+# API documentation
+/docs/api/ @document-mgmt/api-team @document-mgmt/documentation
+
+# Architecture documentation
+/docs/architecture/ @document-mgmt/lead-architects @document-mgmt/documentation
+
+# Security documentation
+/docs/security/ @document-mgmt/security-team @document-mgmt/documentation
+
+# Operations documentation
+/docs/operations/ @document-mgmt/devops @document-mgmt/sre @document-mgmt/documentation
