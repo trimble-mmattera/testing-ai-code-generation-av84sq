@@ -1,0 +1,106 @@
+# =============================================================================
+# Elasticsearch Configuration
+# Document Management Platform
+# =============================================================================
+# Version: 8.6.0
+# This configuration is used for the Elasticsearch cluster that serves as the
+# backend for document search capabilities and log aggregation in the 
+# Document Management Platform.
+
+# =============================================================================
+# Cluster settings
+# =============================================================================
+cluster.name: document-mgmt-es-cluster
+cluster.initial_master_nodes: ["elasticsearch-0", "elasticsearch-1", "elasticsearch-2"]
+
+# Disk-based shard allocation settings
+cluster.routing.allocation.disk.threshold_enabled: true
+cluster.routing.allocation.disk.watermark.low: 85%      # Warning threshold
+cluster.routing.allocation.disk.watermark.high: 90%     # Allocation threshold
+cluster.routing.allocation.disk.watermark.flood_stage: 95%  # Read-only threshold
+
+# =============================================================================
+# Node settings
+# =============================================================================
+node.name: ${HOSTNAME}
+node.master: true       # This node can be a master node
+node.data: true         # This node can store data
+node.ingest: true       # This node can run ingest pipelines
+node.attr.zone: ${ZONE} # Availability zone awareness attribute
+
+# =============================================================================
+# Path settings
+# =============================================================================
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+
+# =============================================================================
+# Network settings
+# =============================================================================
+network.host: 0.0.0.0   # Bind to all interfaces
+http.port: 9200         # HTTP API port
+transport.port: 9300    # Transport protocol port for internal communication
+
+# CORS settings for Kibana and other tools
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+
+# =============================================================================
+# Discovery and cluster formation settings
+# =============================================================================
+discovery.seed_hosts: elasticsearch-headless.monitoring.svc.cluster.local
+discovery.zen.minimum_master_nodes: 2
+discovery.zen.fd.ping_timeout: 30s
+
+# =============================================================================
+# Gateway settings for cluster recovery
+# =============================================================================
+gateway.recover_after_nodes: 2
+gateway.expected_nodes: 3
+gateway.recover_after_time: 5m
+
+# =============================================================================
+# Action settings
+# =============================================================================
+action.destructive_requires_name: true  # Prevent accidental index deletion
+
+# =============================================================================
+# Security settings
+# =============================================================================
+xpack.security.enabled: true
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.keystore.path: elastic-certificates.p12
+xpack.security.transport.ssl.truststore.path: elastic-certificates.p12
+
+# =============================================================================
+# Monitoring settings
+# =============================================================================
+xpack.monitoring.collection.enabled: true
+
+# =============================================================================
+# Indices settings
+# =============================================================================
+indices.recovery.max_bytes_per_sec: 50mb
+indices.fielddata.cache.size: 20%
+indices.memory.index_buffer_size: 10%
+indices.query.bool.max_clause_count: 1024
+
+# =============================================================================
+# Thread pool settings
+# =============================================================================
+thread_pool.search.size: 5
+thread_pool.search.queue_size: 1000
+thread_pool.write.size: 5
+thread_pool.write.queue_size: 1000
+
+# =============================================================================
+# Bootstrap settings
+# =============================================================================
+bootstrap.memory_lock: true  # Lock JVM memory to prevent swapping
+
+# =============================================================================
+# S3 repository plugin settings for snapshots
+# =============================================================================
+s3.client.default.endpoint: s3.${AWS_REGION}.amazonaws.com
+s3.client.default.region: ${AWS_REGION}
