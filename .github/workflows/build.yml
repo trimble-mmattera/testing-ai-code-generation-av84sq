@@ -1,0 +1,288 @@
+# .github/workflows/build.yml
+name: Build and Push
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for the images'
+        required: false
+        default: ''
+      services:
+        description: 'Services to build (comma-separated)'
+        required: false
+        default: 'api,worker'
+      push_images:
+        description: 'Push images to registry'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  GO_VERSION: '1.21'
+  AWS_REGION: 'us-west-2'
+  ECR_REPOSITORY: 'document-mgmt'
+  DOCKERFILE_PATH: 'src/backend/Dockerfile'
+
+jobs:
+  build-api:
+    name: Build API service Docker image
+    runs_on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr-api
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        if: ${{ github.event_name != 'pull_request' }}
+        with:
+          region: ${{ env.AWS_REGION }}
+
+      - name: Extract version information
+        id: version-api
+        shell: bash
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          if [ -z "$VERSION" ]; then
+            VERSION="latest"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build API Docker image
+        id: build-api-image
+        shell: bash
+        run: |
+          source src/backend/scripts/docker-build.sh
+          build_image api
+
+      - name: Save API image as artifact
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        with:
+          name: api-image
+          path: .
+          retention-days: 1
+
+  build-worker:
+    name: Build Worker service Docker image
+    runs_on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # docker/setup-buildx-action@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr-worker
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        if: ${{ github.event_name != 'pull_request' }}
+        with:
+          region: ${{ env.AWS_REGION }}
+
+      - name: Extract version information
+        id: version-worker
+        shell: bash
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          if [ -z "$VERSION" ]; then
+            VERSION="latest"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build Worker Docker image
+        id: build-worker-image
+        shell: bash
+        run: |
+          source src/backend/scripts/docker-build.sh
+          build_image worker
+
+      - name: Save Worker image as artifact
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        with:
+          name: worker-image
+          path: .
+          retention-days: 1
+
+  scan-api:
+    name: Scan API image for vulnerabilities
+    needs: [build-api]
+    runs_on: ubuntu-latest
+    steps:
+      - name: Download API image artifact
+        uses: actions/download-artifact@v3 # actions/download-artifact@v3
+        with:
+          name: api-image
+          path: .
+
+      - name: Load Docker image
+        id: load-api-image
+        shell: bash
+        run: |
+          echo "Loading Docker image..."
+          docker load -i api-image
+
+      - name: Run Trivy vulnerability scanner
+        id: trivy-scan-api
+        uses: aquasecurity/trivy-action@v0.10.0 # aquasecurity/trivy-action@v0.10.0
+        with:
+          image-ref: 'document-mgmt/document-mgmt-api:${{ env.VERSION }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        if: always()
+        with:
+          name: trivy-results-api
+          path: .trivy
+
+  scan-worker:
+    name: Scan Worker image for vulnerabilities
+    needs: [build-worker]
+    runs_on: ubuntu-latest
+    steps:
+      - name: Download Worker image artifact
+        uses: actions/download-artifact@v3 # actions/download-artifact@v3
+        with:
+          name: worker-image
+          path: .
+
+      - name: Load Docker image
+        id: load-worker-image
+        shell: bash
+        run: |
+          echo "Loading Docker image..."
+          docker load -i worker-image
+
+      - name: Run Trivy vulnerability scanner
+        id: trivy-scan-worker
+        uses: aquasecurity/trivy-action@v0.10.0 # aquasecurity/trivy-action@v0.10.0
+        with:
+          image-ref: 'document-mgmt/document-mgmt-worker:${{ env.VERSION }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        if: always()
+        with:
+          name: trivy-results-worker
+          path: .trivy
+
+  push-api:
+    name: Push API image to ECR
+    needs: [scan-api]
+    if: "github.event_name != 'pull_request' && (github.event.inputs.push_images != 'false')"
+    runs_on: ubuntu-latest
+    steps:
+      - name: Download API image artifact
+        uses: actions/download-artifact@v3 # actions/download-artifact@v3
+        with:
+          name: api-image
+          path: .
+
+      - name: Load Docker image
+        id: load-api-image
+        shell: bash
+        run: |
+          echo "Loading Docker image..."
+          docker load -i api-image
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr-api
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+
+      - name: Push API image to ECR
+        id: push-api-image
+        shell: bash
+        run: |
+          source src/backend/scripts/docker-push.sh
+          push_image api
+
+      - name: Output ECR repository URL with tag
+        id: output-api-image-url
+        shell: bash
+        run: |
+          echo "ECR_API_IMAGE=123456789012.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}/document-mgmt-api:${{ env.VERSION }}" >> $GITHUB_ENV
+
+  push-worker:
+    name: Push Worker image to ECR
+    needs: [scan-worker]
+    if: "github.event_name != 'pull_request' && (github.event.inputs.push_images != 'false')"
+    runs_on: ubuntu-latest
+    steps:
+      - name: Download Worker image artifact
+        uses: actions/download-artifact@v3 # actions/download-artifact@v3
+        with:
+          name: worker-image
+          path: .
+
+      - name: Load Docker image
+        id: load-worker-image
+        shell: bash
+        run: |
+          echo "Loading Docker image..."
+          docker load -i worker-image
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr-worker
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+
+      - name: Push Worker image to ECR
+        id: push-worker-image
+        shell: bash
+        run: |
+          source src/backend/scripts/docker-push.sh
+          push_image worker
+
+      - name: Output ECR repository URL with tag
+        id: output-worker-image-url
+        shell: bash
+        run: |
+          echo "ECR_WORKER_IMAGE=123456789012.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}/document-mgmt-worker:${{ env.VERSION }}" >> $GITHUB_ENV
