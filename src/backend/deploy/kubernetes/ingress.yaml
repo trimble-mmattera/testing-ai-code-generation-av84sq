@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: document-api-ingress
+  labels:
+    app: document-management
+    component: api
+    part-of: document-platform
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "10254"
+spec:
+  tls:
+  - hosts:
+    - api.document-platform.example.com
+    secretName: document-api-tls
+  rules:
+  - host: api.document-platform.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: document-api
+            port:
+              name: http
+  ingressClassName: nginx
