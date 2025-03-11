@@ -1,0 +1,317 @@
+# .github/workflows/deploy-dev.yml
+name: Deploy to Development
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    inputs:
+      deploy_infrastructure:
+        description: 'Deploy infrastructure changes'
+        required: false
+        default: 'false'
+        type: boolean
+      deploy_services:
+        description: 'Deploy application services'
+        required: false
+        default: 'true'
+        type: boolean
+      run_integration_tests:
+        description: 'Run integration tests'
+        required: false
+        default: 'true'
+        type: boolean
+  workflow_run:
+    workflows: ["Build and Push"]
+    branches: ["develop"]
+    types: ["completed"]
+    condition: "github.event.workflow_run.conclusion == 'success'"
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: document-mgmt
+  ENVIRONMENT: dev
+  TERRAFORM_VERSION: 1.5.0
+  TERRAFORM_DIR: src/backend/deploy/terraform
+  KUBERNETES_DIR: src/backend/deploy/kubernetes
+
+jobs:
+  infrastructure:
+    name: Provision infrastructure
+    description: Provision or update AWS infrastructure for development
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.deploy_infrastructure == 'true' || github.event_name == 'push'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2 # hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Initialize Terraform
+        id: init
+        run: terraform init -chdir=${{ env.TERRAFORM_DIR }}
+
+      - name: Validate Terraform configuration
+        id: validate
+        run: terraform validate -chdir=${{ env.TERRAFORM_DIR }}
+
+      - name: Plan Terraform changes
+        id: plan
+        run: terraform plan -chdir=${{ env.TERRAFORM_DIR }} -no-color
+        continue-on-error: true
+
+      - name: Apply Terraform changes
+        if: steps.plan.outcome == 'success'
+        id: apply
+        run: terraform apply -chdir=${{ env.TERRAFORM_DIR }} -auto-approve
+
+      - name: Save Terraform outputs
+        id: output
+        shell: bash
+        run: |
+          terraform output -json -chdir=${{ env.TERRAFORM_DIR }} > terraform_output.json
+          echo "terraform_modules=$(cat terraform_output.json)" >> $GITHUB_OUTPUT
+    outputs:
+      terraform_modules: ${{ steps.output.outputs.terraform_modules }}
+
+  configure_kubernetes:
+    name: Configure Kubernetes
+    description: Configure Kubernetes cluster access for development
+    needs: [infrastructure]
+    runs_on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Update kubeconfig for EKS cluster
+        id: kubeconfig
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ fromJson(needs.infrastructure.outputs.terraform_modules).eks_cluster_name.value }} --region ${{ env.AWS_REGION }} --alias ${{ fromJson(needs.infrastructure.outputs.terraform_modules).eks_cluster_name.value }}
+
+      - name: Verify cluster connection
+        id: verify
+        run: kubectl get nodes
+
+  deploy_api:
+    name: Deploy API service
+    description: Deploy API service to Kubernetes using direct deployment
+    needs: [configure_kubernetes]
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.deploy_services != 'false'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Update kubeconfig for EKS cluster
+        id: kubeconfig
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ fromJson(needs.infrastructure.outputs.terraform_modules).eks_cluster_name.value }} --region ${{ env.AWS_REGION }} --alias ${{ fromJson(needs.infrastructure.outputs.terraform_modules).eks_cluster_name.value }}
+
+      - name: Get latest API image tag
+        id: get_api_image_tag
+        shell: bash
+        run: |
+          API_IMAGE_TAG=$(echo ${{ github.sha }})
+          echo "API_IMAGE_TAG=$API_IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Update deployment manifest with image tag
+        id: update_api_deployment
+        shell: bash
+        run: |
+          sed -i "s|image: REPOSITORY/document-api:TAG|image: ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}/document-api:${{ env.API_IMAGE_TAG }}|g" ${{ env.KUBERNETES_DIR }}/api-deployment.yaml
+
+      - name: Apply deployment manifest
+        id: apply_api_deployment
+        run: kubectl apply -f ${{ env.KUBERNETES_DIR }}/api-deployment.yaml
+
+      - name: Wait for deployment to be ready
+        id: wait_api_deployment
+        run: kubectl rollout status deployment/document-api -n default --timeout=60s
+
+      - name: Verify deployment health
+        id: verify_api_deployment
+        run: kubectl get deployment document-api -o wide
+
+  deploy_worker:
+    name: Deploy Worker service
+    description: Deploy Worker service to Kubernetes using direct deployment
+    needs: [configure_kubernetes]
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.deploy_services != 'false'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Update kubeconfig for EKS cluster
+        id: kubeconfig
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ fromJson(needs.infrastructure.outputs.terraform_modules).eks_cluster_name.value }} --region ${{ env.AWS_REGION }} --alias ${{ fromJson(needs.infrastructure.outputs.terraform_modules).eks_cluster_name.value }}
+
+      - name: Get latest Worker image tag
+        id: get_worker_image_tag
+        shell: bash
+        run: |
+          WORKER_IMAGE_TAG=$(echo ${{ github.sha }})
+          echo "WORKER_IMAGE_TAG=$WORKER_IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Update deployment manifest with image tag
+        id: update_worker_deployment
+        shell: bash
+        run: |
+          sed -i "s|image: REPOSITORY/document-worker:TAG|image: ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}/document-worker:${{ env.WORKER_IMAGE_TAG }}|g" ${{ env.KUBERNETES_DIR }}/worker-deployment.yaml
+
+      - name: Apply deployment manifest
+        id: apply_worker_deployment
+        run: kubectl apply -f ${{ env.KUBERNETES_DIR }}/worker-deployment.yaml
+
+      - name: Wait for deployment to be ready
+        id: wait_worker_deployment
+        run: kubectl rollout status deployment/document-worker -n default --timeout=60s
+
+      - name: Verify deployment health
+        id: verify_worker_deployment
+        run: kubectl get deployment document-worker -o wide
+
+  integration_tests:
+    name: Run integration tests
+    description: Run integration tests against development environment
+    needs: [deploy_api, deploy_worker]
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.run_integration_tests != 'false'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Go environment
+        uses: actions/setup-go@v3 # actions/setup-go@v3
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Get API endpoint
+        id: get_api_endpoint
+        shell: bash
+        run: |
+          API_ENDPOINT=$(kubectl get service document-api -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "API_ENDPOINT=$API_ENDPOINT" >> $GITHUB_ENV
+
+      - name: Run integration test suite
+        id: run_tests
+        run: go test -v ./...
+
+      - name: Generate test report
+        id: test_report
+        run: go test -v ./... -json > test-report.json
+
+      - name: Store test artifacts
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        if: always()
+        with:
+          name: integration-test-report
+          path: test-report.json
+
+  notify:
+    name: Send deployment notifications
+    description: Send deployment notifications
+    needs: [integration_tests]
+    runs_on: ubuntu-latest
+    if: 'always()'
+    steps:
+      - name: Determine deployment status
+        id: deployment_status
+        shell: bash
+        run: |
+          if ${{ needs.integration_tests.result == 'success' }}; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        if: always()
+        uses: actions/slack@v3 # actions/slack@v3
+        with:
+          slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          slack_message: |
+            Deployment to development environment ${{ needs.deployment_status.outputs.status }}!
+            Workflow: ${{ github.workflow }}
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Status: ${{ needs.deployment_status.outputs.status }}
+
+      - name: Update deployment status in GitHub
+        if: always()
+        run: echo "Updating deployment status in GitHub"
