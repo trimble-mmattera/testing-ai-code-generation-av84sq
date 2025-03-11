@@ -1,0 +1,984 @@
+{
+  "id": "document-mgmt-logs-dashboard",
+  "title": "Document Management Platform Logs",
+  "description": "Comprehensive view of application logs, system logs, and security events for the Document Management Platform",
+  "version": 1,
+  "refreshInterval": "15s",
+  "timeRange": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "filters": [
+    {
+      "query": {
+        "match_phrase": {
+          "app_name": "document-management-platform"
+        }
+      }
+    }
+  ],
+  "panels": [
+    {
+      "id": "logs-overview",
+      "type": "row",
+      "title": "Logs Overview",
+      "gridData": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1,
+        "i": "1"
+      }
+    },
+    {
+      "id": "log-volume-over-time",
+      "type": "visualization",
+      "title": "Log Volume Over Time",
+      "visualizationType": "area",
+      "gridData": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 8,
+        "i": "2"
+      },
+      "panelIndex": "2",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          },
+          {
+            "id": "3",
+            "enabled": true,
+            "type": "terms",
+            "schema": "group",
+            "params": {
+              "field": "service",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "log-level-distribution",
+      "type": "visualization",
+      "title": "Log Level Distribution",
+      "visualizationType": "pie",
+      "gridData": {
+        "x": 0,
+        "y": 9,
+        "w": 8,
+        "h": 8,
+        "i": "3"
+      },
+      "panelIndex": "3",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "level",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": false,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "service-distribution",
+      "type": "visualization",
+      "title": "Service Distribution",
+      "visualizationType": "pie",
+      "gridData": {
+        "x": 8,
+        "y": 9,
+        "w": 8,
+        "h": 8,
+        "i": "4"
+      },
+      "panelIndex": "4",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "service",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "tenant-distribution",
+      "type": "visualization",
+      "title": "Tenant Distribution",
+      "visualizationType": "pie",
+      "gridData": {
+        "x": 16,
+        "y": 9,
+        "w": 8,
+        "h": 8,
+        "i": "5"
+      },
+      "panelIndex": "5",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "tenant_id",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": true,
+              "missingBucketLabel": "No Tenant"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-logs-section",
+      "type": "row",
+      "title": "Error Logs",
+      "gridData": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 1,
+        "i": "6"
+      }
+    },
+    {
+      "id": "error-logs-over-time",
+      "type": "visualization",
+      "title": "Error Logs Over Time",
+      "visualizationType": "area",
+      "gridData": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 8,
+        "i": "7"
+      },
+      "panelIndex": "7",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "level:(error OR fatal)"
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          },
+          {
+            "id": "3",
+            "enabled": true,
+            "type": "terms",
+            "schema": "group",
+            "params": {
+              "field": "service",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "top-error-messages",
+      "type": "visualization",
+      "title": "Top Error Messages",
+      "visualizationType": "table",
+      "gridData": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 8,
+        "i": "8"
+      },
+      "panelIndex": "8",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "level:(error OR fatal)"
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "bucket",
+            "params": {
+              "field": "message.keyword",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 20,
+              "otherBucket": false,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          },
+          {
+            "id": "3",
+            "enabled": true,
+            "type": "terms",
+            "schema": "bucket",
+            "params": {
+              "field": "service",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 5,
+              "otherBucket": false,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "security-logs-section",
+      "type": "row",
+      "title": "Security Logs",
+      "gridData": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 1,
+        "i": "9"
+      }
+    },
+    {
+      "id": "authentication-failures",
+      "type": "visualization",
+      "title": "Authentication Failures",
+      "visualizationType": "line",
+      "gridData": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 8,
+        "i": "10"
+      },
+      "panelIndex": "10",
+      "source": {
+        "index": "audit-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "event_type:\"authentication\" AND status:\"failure\""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "authorization-failures",
+      "type": "visualization",
+      "title": "Authorization Failures",
+      "visualizationType": "line",
+      "gridData": {
+        "x": 12,
+        "y": 35,
+        "w": 12,
+        "h": 8,
+        "i": "11"
+      },
+      "panelIndex": "11",
+      "source": {
+        "index": "audit-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "event_type:\"authorization\" AND status:\"failure\""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "virus-detections",
+      "type": "visualization",
+      "title": "Virus Detections",
+      "visualizationType": "line",
+      "gridData": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8,
+        "i": "12"
+      },
+      "panelIndex": "12",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "service:\"virus_scanning_service\" AND message:*virus*detected*"
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "cross-tenant-access-attempts",
+      "type": "visualization",
+      "title": "Cross-Tenant Access Attempts",
+      "visualizationType": "line",
+      "gridData": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8,
+        "i": "13"
+      },
+      "panelIndex": "13",
+      "source": {
+        "index": "audit-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "event_type:\"cross_tenant_access\""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "document-operations-section",
+      "type": "row",
+      "title": "Document Operations",
+      "gridData": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 1,
+        "i": "14"
+      }
+    },
+    {
+      "id": "document-operations-over-time",
+      "type": "visualization",
+      "title": "Document Operations Over Time",
+      "visualizationType": "area",
+      "gridData": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 8,
+        "i": "15"
+      },
+      "panelIndex": "15",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "service:\"document_service\" AND operation:*"
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          },
+          {
+            "id": "3",
+            "enabled": true,
+            "type": "terms",
+            "schema": "group",
+            "params": {
+              "field": "operation",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "document-operation-status",
+      "type": "visualization",
+      "title": "Document Operation Status",
+      "visualizationType": "pie",
+      "gridData": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8,
+        "i": "16"
+      },
+      "panelIndex": "16",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "service:\"document_service\" AND operation:* AND status:*"
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "status",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": false,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "document-operation-duration",
+      "type": "visualization",
+      "title": "Document Operation Duration (ms)",
+      "visualizationType": "histogram",
+      "gridData": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8,
+        "i": "17"
+      },
+      "panelIndex": "17",
+      "source": {
+        "index": "document-mgmt-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": "service:\"document_service\" AND operation:* AND duration_ms:*"
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "avg",
+            "schema": "metric",
+            "params": {
+              "field": "duration_ms"
+            }
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "operation",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": false,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "system-logs-section",
+      "type": "row",
+      "title": "System Logs",
+      "gridData": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 1,
+        "i": "18"
+      }
+    },
+    {
+      "id": "system-logs-over-time",
+      "type": "visualization",
+      "title": "System Logs Over Time",
+      "visualizationType": "area",
+      "gridData": {
+        "x": 0,
+        "y": 69,
+        "w": 24,
+        "h": 8,
+        "i": "19"
+      },
+      "panelIndex": "19",
+      "source": {
+        "index": "system-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "date_histogram",
+            "schema": "segment",
+            "params": {
+              "field": "@timestamp",
+              "timeRange": {
+                "from": "now-24h",
+                "to": "now"
+              },
+              "useNormalizedEsInterval": true,
+              "interval": "auto",
+              "drop_partials": false,
+              "min_doc_count": 1,
+              "extended_bounds": {}
+            }
+          },
+          {
+            "id": "3",
+            "enabled": true,
+            "type": "terms",
+            "schema": "group",
+            "params": {
+              "field": "syslog.severity",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "system-logs-by-host",
+      "type": "visualization",
+      "title": "System Logs by Host",
+      "visualizationType": "pie",
+      "gridData": {
+        "x": 0,
+        "y": 77,
+        "w": 12,
+        "h": 8,
+        "i": "20"
+      },
+      "panelIndex": "20",
+      "source": {
+        "index": "system-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "host.name",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "system-logs-by-process",
+      "type": "visualization",
+      "title": "System Logs by Process",
+      "visualizationType": "pie",
+      "gridData": {
+        "x": 12,
+        "y": 77,
+        "w": 12,
+        "h": 8,
+        "i": "21"
+      },
+      "panelIndex": "21",
+      "source": {
+        "index": "system-logs-*",
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "aggs": [
+          {
+            "id": "1",
+            "enabled": true,
+            "type": "count",
+            "schema": "metric",
+            "params": {}
+          },
+          {
+            "id": "2",
+            "enabled": true,
+            "type": "terms",
+            "schema": "segment",
+            "params": {
+              "field": "process.name",
+              "orderBy": "1",
+              "order": "desc",
+              "size": 10,
+              "otherBucket": true,
+              "otherBucketLabel": "Other",
+              "missingBucket": false,
+              "missingBucketLabel": "Missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "logs-discovery-section",
+      "type": "row",
+      "title": "Logs Discovery",
+      "gridData": {
+        "x": 0,
+        "y": 85,
+        "w": 24,
+        "h": 1,
+        "i": "22"
+      }
+    },
+    {
+      "id": "logs-discovery",
+      "type": "search",
+      "title": "Logs Discovery",
+      "gridData": {
+        "x": 0,
+        "y": 86,
+        "w": 24,
+        "h": 15,
+        "i": "23"
+      },
+      "panelIndex": "23",
+      "source": {
+        "index": [
+          "document-mgmt-logs-*",
+          "audit-logs-*",
+          "system-logs-*"
+        ],
+        "query": {
+          "language": "kuery",
+          "query": ""
+        },
+        "sort": [
+          {
+            "@timestamp": {
+              "order": "desc"
+            }
+          }
+        ],
+        "columns": [
+          "@timestamp",
+          "service",
+          "level",
+          "message",
+          "tenant_id",
+          "operation",
+          "status",
+          "duration_ms"
+        ]
+      }
+    }
+  ],
+  "options": {
+    "hidePanelTitles": false,
+    "useMargins": true,
+    "syncColors": true,
+    "syncTooltips": true
+  },
+  "kibanaSavedObjectMeta": {
+    "searchSourceJSON": {
+      "query": {
+        "language": "kuery",
+        "query": ""
+      },
+      "filter": []
+    }
+  }
+}
