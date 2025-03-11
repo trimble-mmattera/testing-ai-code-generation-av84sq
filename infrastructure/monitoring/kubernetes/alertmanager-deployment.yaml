@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app: alertmanager
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9093"
+    spec:
+      serviceAccountName: alertmanager
+      securityContext:
+        fsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.25.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config.file=/etc/alertmanager/alertmanager.yml
+        - --storage.path=/alertmanager
+        - --web.external-url=http://alertmanager.monitoring.svc:9093
+        - --web.route-prefix=/
+        - --cluster.listen-address=0.0.0.0:9094
+        ports:
+        - containerPort: 9093
+          name: http
+          protocol: TCP
+        - containerPort: 9094
+          name: cluster
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager
+        - name: templates-volume
+          mountPath: /etc/alertmanager/templates
+        - name: storage-volume
+          mountPath: /alertmanager
+        - name: alertmanager-secrets
+          mountPath: /etc/alertmanager/secrets
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          periodSeconds: 15
+      volumes:
+      - name: config-volume
+        configMap:
+          name: alertmanager-config
+          items:
+          - key: alertmanager.yml
+            path: alertmanager.yml
+      - name: templates-volume
+        configMap:
+          name: alertmanager-config
+          items:
+          - key: default.tmpl
+            path: default.tmpl
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: alertmanager-storage
+      - name: alertmanager-secrets
+        secret:
+          secretName: alertmanager-credentials
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/monitoring
+                operator: Exists
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - alertmanager
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: monitoring
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
