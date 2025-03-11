@@ -1,0 +1,338 @@
+name: Security Scan
+
+# Run this workflow on push/PR to main branches, weekly, or manually
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly on Sunday at midnight
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - trivy
+          - codeql
+          - gosec
+          - dependency-check
+          - secret-detection
+          - all
+
+# Define environment variables
+env:
+  GO_VERSION: '1.21'
+  TRIVY_SEVERITY: 'CRITICAL,HIGH,MEDIUM'
+  GOSEC_SEVERITY: 'HIGH,MEDIUM'
+  DEPENDENCY_CHECK_FAIL_CVSS: '7.0'
+  SECURITY_REPORTS_DIR: 'security-reports'
+
+jobs:
+  trivy-fs-scan:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'trivy' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.10.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'template'
+          template: '@/contrib/sarif.tpl'
+          output: 'trivy-results.sarif'
+          severity: ${{ env.TRIVY_SEVERITY }}
+          # Using config file from repository
+          config: infrastructure/security/trivy/trivy-config.yml
+
+      - name: Upload Trivy scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-results
+          path: |
+            trivy-results.sarif
+            /tmp/trivy-results.json
+          retention-days: 7
+
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'codeql' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == '' }}
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: go
+          
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Autobuild attempts to build any compiled languages
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:go"
+
+  gosec-scan:
+    name: GoSec Security Scan
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'gosec' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.15.0
+
+      - name: Run gosec
+        run: |
+          mkdir -p ${{ env.SECURITY_REPORTS_DIR }}
+          # Using config file from repository
+          gosec -conf infrastructure/security/gosec/gosec-config.json -fmt json -out ${{ env.SECURITY_REPORTS_DIR }}/gosec-results.json ./...
+        continue-on-error: true
+
+      - name: Upload gosec scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: gosec-results
+          path: ${{ env.SECURITY_REPORTS_DIR }}/gosec-results.json
+          retention-days: 7
+
+  dependency-check:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'dependency-check' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/dependency-check-action@v2.6.0
+        with:
+          project: 'Document-Management-Platform'
+          path: '.'
+          format: 'ALL'
+          out: ${{ env.SECURITY_REPORTS_DIR }}
+          args: |
+            --failOnCVSS ${{ env.DEPENDENCY_CHECK_FAIL_CVSS }}
+            --suppression infrastructure/security/owasp-dependency-check/suppressions.xml
+            --enableExperimental
+        continue-on-error: true
+
+      - name: Upload Dependency Check results
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-check-results
+          path: ${{ env.SECURITY_REPORTS_DIR }}
+          retention-days: 7
+
+  secret-detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'secret-detection' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        continue-on-error: true
+
+      - name: Install git-secrets
+        run: |
+          git clone https://github.com/awslabs/git-secrets.git
+          cd git-secrets
+          sudo make install
+          cd ..
+          rm -rf git-secrets
+
+      - name: Configure git-secrets
+        run: |
+          mkdir -p ${{ env.SECURITY_REPORTS_DIR }}
+          git secrets --register-aws
+          # Add custom patterns from repository
+          while IFS= read -r pattern; do
+            # Skip comments and empty lines
+            [[ "$pattern" =~ ^#.*$ || -z "$pattern" ]] && continue
+            git secrets --add "$pattern"
+          done < infrastructure/security/git-secrets/git-secrets-patterns.txt
+
+      - name: Run git-secrets
+        run: |
+          git secrets --scan > ${{ env.SECURITY_REPORTS_DIR }}/git-secrets-results.txt || true
+          
+      - name: Upload secret detection results
+        uses: actions/upload-artifact@v3
+        with:
+          name: secret-detection-results
+          path: |
+            ${{ env.SECURITY_REPORTS_DIR }}/git-secrets-results.txt
+            results.sarif
+          retention-days: 7
+
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [trivy-fs-scan, codeql-analysis, gosec-scan, dependency-check, secret-detection]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ${{ env.SECURITY_REPORTS_DIR }}
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Generate combined security report
+        run: |
+          mkdir -p ${{ env.SECURITY_REPORTS_DIR }}/combined
+          
+          # Create report header
+          echo "# Security Scan Summary" > ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "## Scan Information" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "- Repository: ${{ github.repository }}" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "- Branch/Ref: ${{ github.ref }}" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "- Commit: ${{ github.sha }}" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "- Run Date: $(date)" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # Trivy results
+          echo "## Trivy Vulnerability Scanner Results" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          if [ -f "${{ env.SECURITY_REPORTS_DIR }}/trivy-results/trivy-results.sarif" ]; then
+            echo "Trivy scan completed. See detailed results in the artifacts." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            if [ -f "${{ env.SECURITY_REPORTS_DIR }}/trivy-results/trivy-results.json" ]; then
+              VULN_COUNT=$(cat "${{ env.SECURITY_REPORTS_DIR }}/trivy-results/trivy-results.json" | jq -r '.Results | map(.Vulnerabilities | length) | add // 0')
+              echo "Total vulnerabilities found: $VULN_COUNT" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            fi
+          else
+            echo "No Trivy results found or scan was skipped." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          fi
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # CodeQL results
+          echo "## CodeQL Analysis Results" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "CodeQL analysis completed. Results are available in the GitHub Security tab." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # GoSec results
+          echo "## GoSec Security Scanner Results" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          if [ -f "${{ env.SECURITY_REPORTS_DIR }}/gosec-results/gosec-results.json" ]; then
+            GOSEC_ISSUES=$(cat "${{ env.SECURITY_REPORTS_DIR }}/gosec-results/gosec-results.json" | jq '.Issues | length // 0')
+            echo "GoSec found $GOSEC_ISSUES potential issues." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            
+            # Extract high severity issues
+            HIGH_ISSUES=$(cat "${{ env.SECURITY_REPORTS_DIR }}/gosec-results/gosec-results.json" | jq '[.Issues[] | select(.severity == "HIGH")] | length // 0')
+            echo "- High severity issues: $HIGH_ISSUES" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            
+            # Extract medium severity issues
+            MEDIUM_ISSUES=$(cat "${{ env.SECURITY_REPORTS_DIR }}/gosec-results/gosec-results.json" | jq '[.Issues[] | select(.severity == "MEDIUM")] | length // 0')
+            echo "- Medium severity issues: $MEDIUM_ISSUES" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            
+            echo "See detailed results in the artifacts." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          else
+            echo "No GoSec results found or scan was skipped." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          fi
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # Dependency Check results
+          echo "## OWASP Dependency Check Results" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          if [ -d "${{ env.SECURITY_REPORTS_DIR }}/dependency-check-results" ]; then
+            echo "OWASP Dependency Check completed. See detailed results in the artifacts." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            if [ -f "${{ env.SECURITY_REPORTS_DIR }}/dependency-check-results/dependency-check-report.json" ]; then
+              DEP_VULN_COUNT=$(cat "${{ env.SECURITY_REPORTS_DIR }}/dependency-check-results/dependency-check-report.json" | jq '.dependencies | map(select(.vulnerabilities != null)) | length // 0')
+              echo "Dependencies with vulnerabilities: $DEP_VULN_COUNT" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            fi
+          else
+            echo "No Dependency Check results found or scan was skipped." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          fi
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # Secret Detection results
+          echo "## Secret Detection Results" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          if [ -f "${{ env.SECURITY_REPORTS_DIR }}/secret-detection-results/git-secrets-results.txt" ]; then
+            if grep -q "No secrets found" "${{ env.SECURITY_REPORTS_DIR }}/secret-detection-results/git-secrets-results.txt"; then
+              echo "No secrets found by git-secrets." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            else
+              echo "Potential secrets detected by git-secrets. See detailed results in the artifacts." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+            fi
+          fi
+          
+          if [ -f "${{ env.SECURITY_REPORTS_DIR }}/secret-detection-results/results.sarif" ]; then
+            echo "Gitleaks scan completed. See detailed results in the artifacts." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          else
+            echo "No Gitleaks results found or no secrets were detected." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          fi
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # Summary
+          echo "## Overall Summary" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "Security scanning completed. Please review the detailed reports for each tool." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "For compliance with SOC2 and ISO27001 standards, address all high severity findings." >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          echo "" >> ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md
+          
+          # Convert to JSON for programmatic use
+          jq -n \
+            --arg trivy "$(test -f "${{ env.SECURITY_REPORTS_DIR }}/trivy-results/trivy-results.sarif" && echo "completed" || echo "skipped")" \
+            --arg codeql "completed" \
+            --arg gosec "$(test -f "${{ env.SECURITY_REPORTS_DIR }}/gosec-results/gosec-results.json" && echo "completed" || echo "skipped")" \
+            --arg dependency_check "$(test -d "${{ env.SECURITY_REPORTS_DIR }}/dependency-check-results" && echo "completed" || echo "skipped")" \
+            --arg secret_detection "$(test -f "${{ env.SECURITY_REPORTS_DIR }}/secret-detection-results/git-secrets-results.txt" && echo "completed" || echo "skipped")" \
+            '{
+              "scan_summary": {
+                "trivy": $trivy,
+                "codeql": $codeql,
+                "gosec": $gosec,
+                "dependency_check": $dependency_check,
+                "secret_detection": $secret_detection
+              },
+              "timestamp": now | todate,
+              "repository": "${{ github.repository }}",
+              "ref": "${{ github.ref }}",
+              "commit": "${{ github.sha }}"
+            }' > ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.json
+
+      - name: Upload combined report
+        uses: actions/upload-artifact@v3
+        with:
+          name: combined-security-report
+          path: ${{ env.SECURITY_REPORTS_DIR }}/combined
+          retention-days: 7
+          
+      - name: Post summary
+        run: cat ${{ env.SECURITY_REPORTS_DIR }}/combined/summary.md >> $GITHUB_STEP_SUMMARY
