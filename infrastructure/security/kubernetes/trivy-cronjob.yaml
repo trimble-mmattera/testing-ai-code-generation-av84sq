@@ -1,0 +1,102 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-scan-cronjob
+  namespace: security
+  labels:
+    app: trivy
+    component: security-scanner
+  annotations:
+    description: "Scheduled vulnerability scanning for container images"
+spec:
+  schedule: "0 2 * * *"  # Run daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: trivy
+            component: security-scanner
+        spec:
+          serviceAccountName: trivy-scanner-sa
+          restartPolicy: OnFailure
+          containers:
+          - name: trivy-scanner
+            image: aquasec/trivy:0.42.0
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -c
+            args:
+            - trivy image --severity $(SEVERITY_LEVELS) --format $(REPORT_FORMAT) --output /tmp/scan-results.json --timeout $(TIMEOUT) $(SCAN_TARGETS) && aws s3 cp /tmp/scan-results.json s3://$(RESULTS_BUCKET)/$(date +%Y-%m-%d)/scan-results.json && aws sns publish --topic-arn $(NOTIFICATION_TOPIC) --message "Trivy scan completed. Results available in S3 bucket $(RESULTS_BUCKET)."
+            env:
+            - name: SEVERITY_LEVELS
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: severity-levels
+            - name: REPORT_FORMAT
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: report-format
+            - name: TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: timeout
+            - name: SCAN_TARGETS
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: scan-targets
+            - name: RESULTS_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: results-bucket
+            - name: NOTIFICATION_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: notification-topic
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: trivy-config
+                  key: aws-region
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: trivy-secrets
+                  key: aws-access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: trivy-secrets
+                  key: aws-secret-key
+            resources:
+              requests:
+                cpu: "500m"
+                memory: "1Gi"
+              limits:
+                cpu: "1"
+                memory: "2Gi"
+            volumeMounts:
+            - name: cache-volume
+              mountPath: /root/.cache
+            - name: tmp-volume
+              mountPath: /tmp
+          volumes:
+          - name: cache-volume
+            emptyDir: {}
+          - name: tmp-volume
+            emptyDir: {}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
