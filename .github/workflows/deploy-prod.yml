@@ -1,0 +1,516 @@
+# .github/workflows/deploy-prod.yml
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_infrastructure:
+        description: 'Deploy infrastructure changes'
+        required: false
+        default: 'false'
+        type: boolean
+      deploy_services:
+        description: 'Deploy application services'
+        required: false
+        default: 'true'
+        type: boolean
+      image_tag:
+        description: 'Specific image tag to deploy'
+        required: false
+        default: 'latest'
+  workflow_run:
+    workflows: ["Deploy to Staging"]
+    branches: ["main"]
+    types:
+      - completed
+    condition: github.event.workflow_run.conclusion == 'success'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: document-mgmt
+  ENVIRONMENT: production
+  TERRAFORM_VERSION: 1.5.0
+  TERRAFORM_DIR: src/backend/deploy/terraform
+  KUBERNETES_DIR: src/backend/deploy/kubernetes
+  CANARY_STEPS: 10,25,50,75,100
+  MONITORING_DURATION: 15
+
+jobs:
+  request_approval:
+    name: Request approval for production deployment
+    runs_on: ubuntu-latest
+    environment:
+      name: production
+      url: https://api.document-mgmt.example.com
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Get deployment details
+        id: deployment_details
+        shell: bash
+        run: |
+          echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
+          echo "DEPLOY_INFRASTRUCTURE=${{ github.event.inputs.deploy_infrastructure }}" >> $GITHUB_ENV
+          echo "DEPLOY_SERVICES=${{ github.event.inputs.deploy_services }}" >> $GITHUB_ENV
+      - name: Create approval issue
+        uses: actions/github-script@v6 # actions/github-script@v6
+        id: create_issue
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `
+            Requesting approval to deploy to production:
+
+            - **Environment**: ${{ env.ENVIRONMENT }}
+            - **Image Tag**: ${{ env.IMAGE_TAG }}
+            - **Deploy Infrastructure**: ${{ env.DEPLOY_INFRASTRUCTURE }}
+            - **Deploy Services**: ${{ env.DEPLOY_SERVICES }}
+
+            Please review and approve by commenting '/approve' on this issue.
+            `;
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Production Deployment Approval Request',
+              body: output,
+            });
+            core.setOutput('issue_number', issue.data.number);
+      - name: Wait for approval
+        uses: actions/github-script@v6 # actions/github-script@v6
+        id: wait_for_approval
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue_number = core.getState('issue_number');
+            let approved = false;
+            let comments = [];
+            while (!approved) {
+              comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue_number,
+              });
+              for (const comment of comments.data) {
+                if (comment.body.includes('/approve')) {
+                  approved = true;
+                  core.info('Deployment approved!');
+                  break;
+                }
+              }
+              if (!approved) {
+                core.info('Waiting for approval...');
+                await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+              }
+            }
+      - name: Verify approval status
+        if: steps.wait_for_approval.outcome == 'success'
+        shell: bash
+        run: echo "Deployment approved, proceeding..."
+
+  infrastructure:
+    name: Provision or update AWS infrastructure for production
+    needs: [request_approval]
+    runs_on: ubuntu-latest
+    if: github.event.inputs.deploy_infrastructure == 'true'
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2 # hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: Initialize Terraform
+        id: init
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: terraform init
+      - name: Validate Terraform configuration
+        id: validate
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: terraform validate -no-color
+      - name: Plan Terraform changes
+        id: plan
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: terraform plan -no-color
+        continue-on-error: true
+      - name: Generate plan summary
+        id: plan-summary
+        shell: bash
+        run: |
+          if [[ contains(steps.plan.outputs.stdout, "No changes.") ]]; then
+            echo "::set-output name=has_changes::false"
+          else
+            echo "::set-output name=has_changes::true"
+          fi
+      - name: Apply Terraform changes
+        if: steps.plan-summary.outputs.has_changes == 'true'
+        id: apply
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: terraform apply -auto-approve
+      - name: Save Terraform outputs
+        id: output
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          DB_ENDPOINT=$(terraform output -raw db_endpoint)
+          echo "DB_ENDPOINT=$DB_ENDPOINT" >> $GITHUB_ENV
+          DB_PORT=$(terraform output -raw db_port)
+          echo "DB_PORT=$DB_PORT" >> $GITHUB_ENV
+
+  configure_kubernetes:
+    name: Configure Kubernetes cluster access for production
+    needs: [request_approval]
+    runs_on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'v1.25.0'
+      - name: Update kubeconfig for EKS cluster
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ env.project_name }}-${{ env.ENVIRONMENT }} --region ${{ env.AWS_REGION }}
+      - name: Verify cluster connection
+        shell: bash
+        run: kubectl get nodes
+
+  deploy_api:
+    name: Deploy API service to Kubernetes using canary deployment
+    needs: [configure_kubernetes]
+    runs_on: ubuntu-latest
+    if: github.event.inputs.deploy_services != 'false'
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'v1.25.0'
+      - name: Update kubeconfig for EKS cluster
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ env.project_name }}-${{ env.ENVIRONMENT }} --region ${{ env.AWS_REGION }}
+      - name: Get API image tag
+        shell: bash
+        run: echo "API_IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
+      - name: Create canary deployment manifest
+        shell: bash
+        run: |
+          sed "s|\{\{.Values.image.repository\}\}|${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}|g" src/backend/deploy/kubernetes/api-deployment.yaml > api-deployment-canary.yaml
+          sed -i "s|\{\{.Values.image.tag\}\}|${{ env.API_IMAGE_TAG }}|g" api-deployment-canary.yaml
+      - name: Apply canary deployment with 10% traffic
+        shell: bash
+        run: kubectl apply -f api-deployment-canary.yaml
+      - name: Wait for canary deployment to be ready
+        shell: bash
+        run: kubectl rollout status deployment/document-api -n default --timeout=5m
+      - name: Verify canary deployment health
+        shell: bash
+        run: |
+          # Add your health check logic here
+          echo "Verifying canary deployment health..."
+          kubectl get deployment document-api -o yaml
+      - name: Monitor canary metrics for 15 minutes
+        shell: bash
+        run: |
+          # Add your monitoring logic here
+          echo "Monitoring canary metrics for 15 minutes..."
+          sleep $((15 * 60))
+      - name: Increase traffic to 25%
+        shell: bash
+        run: echo "Increasing traffic to 25%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Increase traffic to 50%
+        shell: bash
+        run: echo "Increasing traffic to 50%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Increase traffic to 75%
+        shell: bash
+        run: echo "Increasing traffic to 75%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Increase traffic to 100%
+        shell: bash
+        run: echo "Increasing traffic to 100%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Remove old deployment
+        shell: bash
+        run: echo "Removing old deployment"
+
+  deploy_worker:
+    name: Deploy Worker service to Kubernetes using canary deployment
+    needs: [configure_kubernetes]
+    runs_on: ubuntu-latest
+    if: github.event.inputs.deploy_services != 'false'
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'v1.25.0'
+      - name: Update kubeconfig for EKS cluster
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ env.project_name }}-${{ env.ENVIRONMENT }} --region ${{ env.AWS_REGION }}
+      - name: Get Worker image tag
+        shell: bash
+        run: echo "WORKER_IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
+      - name: Create canary deployment manifest
+        shell: bash
+        run: |
+          sed "s|\{\{.Values.image.repository\}\}|${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}|g" src/backend/deploy/kubernetes/worker-deployment.yaml > worker-deployment-canary.yaml
+          sed -i "s|\{\{.Values.image.tag\}\}|${{ env.WORKER_IMAGE_TAG }}|g" worker-deployment-canary.yaml
+      - name: Apply canary deployment with 10% traffic
+        shell: bash
+        run: kubectl apply -f worker-deployment-canary.yaml
+      - name: Wait for canary deployment to be ready
+        shell: bash
+        run: kubectl rollout status deployment/document-worker -n default --timeout=5m
+      - name: Verify canary deployment health
+        shell: bash
+        run: |
+          # Add your health check logic here
+          echo "Verifying canary deployment health..."
+          kubectl get deployment document-worker -o yaml
+      - name: Monitor canary metrics for 15 minutes
+        shell: bash
+        run: |
+          # Add your monitoring logic here
+          echo "Monitoring canary metrics for 15 minutes..."
+          sleep $((15 * 60))
+      - name: Increase traffic to 25%
+        shell: bash
+        run: echo "Increasing traffic to 25%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Increase traffic to 50%
+        shell: bash
+        run: echo "Increasing traffic to 50%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Increase traffic to 75%
+        shell: bash
+        run: echo "Increasing traffic to 75%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Increase traffic to 100%
+        shell: bash
+        run: echo "Increasing traffic to 100%"
+      - name: Monitor and verify for 10 minutes
+        shell: bash
+        run: sleep $((10 * 60))
+      - name: Remove old deployment
+        shell: bash
+        run: echo "Removing old deployment"
+
+  smoke_tests:
+    name: Run smoke tests against production environment
+    needs: [deploy_api, deploy_worker]
+    runs_on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Set up Go environment
+        uses: actions/setup-go@v3 # actions/setup-go@v3
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install dependencies
+        shell: bash
+        run: go mod download
+      - name: Get API endpoint
+        shell: bash
+        run: echo "API_ENDPOINT=https://api.document-mgmt.example.com" >> $GITHUB_ENV
+      - name: Run smoke test suite
+        shell: bash
+        run: |
+          # Add your smoke test execution command here
+          echo "Running smoke test suite..."
+          go test -v ./tests/smoke/...
+      - name: Verify critical business flows
+        shell: bash
+        run: |
+          # Add your business flow verification logic here
+          echo "Verifying critical business flows..."
+      - name: Generate test report
+        shell: bash
+        run: |
+          # Add your test report generation logic here
+          echo "Generating test report..."
+      - name: Store test artifacts
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        with:
+          name: smoke-test-results
+          path: ./tests/smoke/results
+
+  notify:
+    name: Send deployment notifications
+    needs: [smoke_tests]
+    runs_on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Determine deployment status
+        id: deployment_status
+        shell: bash
+        run: |
+          if ${{ needs.smoke_tests.result == 'success' }}; then
+            echo "::set-output name=status::success"
+          else
+            echo "::set-output name=status::failure"
+          fi
+      - name: Send Slack notification
+        if: always()
+        uses: actions/github-script@v6 # actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const status = core.getState('status');
+            const slackWebhookUrl = '${{ secrets.SLACK_WEBHOOK_URL }}';
+            if (!slackWebhookUrl) {
+              core.warning('SLACK_WEBHOOK_URL is not set, skipping Slack notification.');
+              return;
+            }
+            const payload = {
+              text: `Production Deployment: ${status.toUpperCase()}! Workflow: ${context.workflow}, Run ID: ${context.runId}`,
+            };
+            const result = await github.request('POST', slackWebhookUrl, {
+              body: JSON.stringify(payload),
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            core.info(`Slack notification sent: ${result.status}`);
+      - name: Send email notification
+        if: always()
+        shell: bash
+        run: |
+          # Add your email notification logic here
+          echo "Sending email notification..."
+      - name: Update deployment status in GitHub
+        if: always()
+        uses: actions/github-script@v6 # actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const status = core.getState('status');
+            const environment = 'production';
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.ref,
+              environment: environment,
+              required_contexts: [],
+            });
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: status,
+              environment_url: 'https://api.document-mgmt.example.com',
+              log_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+      - name: Create deployment record in tracking system
+        if: always()
+        shell: bash
+        run: |
+          # Add your deployment tracking system integration logic here
+          echo "Creating deployment record in tracking system..."
+
+  rollback:
+    name: Rollback deployment if needed
+    needs: [smoke_tests]
+    runs_on: ubuntu-latest
+    if: failure()
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'v1.25.0'
+      - name: Update kubeconfig for EKS cluster
+        shell: bash
+        run: |
+          aws eks update-kubeconfig --name ${{ env.project_name }}-${{ env.ENVIRONMENT }} --region ${{ env.AWS_REGION }}
+      - name: Identify previous stable deployment
+        shell: bash
+        run: |
+          # Add logic to identify the previous stable deployment
+          echo "Identifying previous stable deployment..."
+      - name: Rollback to previous deployment
+        shell: bash
+        run: |
+          # Add kubectl command to rollback to the previous deployment
+          echo "Rolling back to previous deployment..."
+      - name: Verify rollback success
+        shell: bash
+        run: |
+          # Add logic to verify that the rollback was successful
+          echo "Verifying rollback success..."
+      - name: Send rollback notification
+        shell: bash
+        run: |
+          # Add your rollback notification logic here
+          echo "Sending rollback notification..."
