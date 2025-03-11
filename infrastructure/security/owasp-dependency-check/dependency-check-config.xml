@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dependency-check 
+    xmlns="https://jeremylong.github.io/DependencyCheck/dependency-check.1.8.xsd"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    xsi:schemaLocation="https://jeremylong.github.io/DependencyCheck/dependency-check.1.8.xsd https://jeremylong.github.io/DependencyCheck/dependency-check.1.8.xsd">
+    
+    <!-- General Configuration -->
+    <name>Document Management Platform Dependency Check</name>
+    <scanPath>src/backend</scanPath>
+    <outputDirectory>security-reports</outputDirectory>
+    <dataDirectory>~/.dependency-check/data</dataDirectory>
+    <suppressionFile>infrastructure/security/owasp-dependency-check/suppressions.xml</suppressionFile>
+    
+    <!-- Scan Configuration -->
+    <scanDependencies>true</scanDependencies>
+    <scanDevDependencies>false</scanDevDependencies>
+    <scanRuntimeDependencies>true</scanRuntimeDependencies>
+    <scanTestDependencies>false</scanTestDependencies>
+    <skipProvidedScope>true</skipProvidedScope>
+    <skipSystemScope>true</skipSystemScope>
+    
+    <!-- Analyzer Configuration -->
+    <analyzers>
+        <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+        <golangDepEnabled>true</golangDepEnabled>
+        <golangModEnabled>true</golangModEnabled>
+        <nodeAuditAnalyzerEnabled>false</nodeAuditAnalyzerEnabled>
+        <nodeAnalyzerEnabled>false</nodeAnalyzerEnabled>
+        <nuspecAnalyzerEnabled>false</nuspecAnalyzerEnabled>
+        <pyDistributionAnalyzerEnabled>false</pyDistributionAnalyzerEnabled>
+        <pyPackageAnalyzerEnabled>false</pyPackageAnalyzerEnabled>
+        <rubyGemAnalyzerEnabled>false</rubyGemAnalyzerEnabled>
+        <bundleAuditAnalyzerEnabled>false</bundleAuditAnalyzerEnabled>
+        <cocoapodsAnalyzerEnabled>false</cocoapodsAnalyzerEnabled>
+        <swiftPackageManagerAnalyzerEnabled>false</swiftPackageManagerAnalyzerEnabled>
+        <archiveAnalyzerEnabled>true</archiveAnalyzerEnabled>
+        <jarAnalyzerEnabled>false</jarAnalyzerEnabled>
+        <centralAnalyzerEnabled>false</centralAnalyzerEnabled>
+        <nexusAnalyzerEnabled>false</nexusAnalyzerEnabled>
+        <ossIndexAnalyzerEnabled>true</ossIndexAnalyzerEnabled>
+        <retireJsAnalyzerEnabled>false</retireJsAnalyzerEnabled>
+    </analyzers>
+    
+    <!-- Reporting Configuration -->
+    <formats>
+        <format>HTML</format>
+        <format>JSON</format>
+        <format>CSV</format>
+        <format>SARIF</format>
+    </formats>
+    <outputDirectory>security-reports</outputDirectory>
+    <failBuildOnCVSS>7.0</failBuildOnCVSS>
+    <showSummary>true</showSummary>
+    <prettyPrint>true</prettyPrint>
+    
+    <!-- CVE Database Configuration -->
+    <cveValidForHours>24</cveValidForHours>
+    <cveStartYear>2018</cveStartYear>
+    <cveDownloadTimeout>20</cveDownloadTimeout>
+    
+    <!-- Proxy Configuration (if needed) -->
+    <proxyServer></proxyServer>
+    <proxyPort>0</proxyPort>
+    <proxyUsername></proxyUsername>
+    <proxyPassword></proxyPassword>
+    <nonProxyHosts>localhost,127.0.0.1</nonProxyHosts>
+    
+</dependency-check>
