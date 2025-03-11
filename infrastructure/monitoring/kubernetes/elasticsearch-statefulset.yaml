@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: monitoring
+  labels:
+    app: elasticsearch
+    component: monitoring
+    part-of: document-management-platform
+spec:
+  serviceName: elasticsearch-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elasticsearch
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: monitoring
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9200"
+        prometheus.io/path: "/_prometheus/metrics"
+    spec:
+      serviceAccountName: elasticsearch
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.35.0
+          command:
+            - sh
+            - -c
+            - chown -R 1000:1000 /usr/share/elasticsearch/data
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: elasticsearch-data
+              mountPath: /usr/share/elasticsearch/data
+        - name: increase-vm-max-map
+          image: busybox:1.35.0
+          command:
+            - sysctl
+            - -w
+            - vm.max_map_count=262144
+          securityContext:
+            privileged: true
+        - name: increase-fd-ulimit
+          image: busybox:1.35.0
+          command:
+            - sh
+            - -c
+            - ulimit -n 65536
+          securityContext:
+            privileged: true
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.6.0
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          ports:
+            - name: http
+              containerPort: 9200
+              protocol: TCP
+            - name: transport
+              containerPort: 9300
+              protocol: TCP
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CLUSTER_NAME
+              value: document-mgmt-es-cluster
+            - name: ES_JAVA_OPTS
+              value: -Xms2g -Xmx2g
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: password
+            - name: ZONE
+              valueFrom:
+                fieldRef:
+                  fieldPath: "metadata.labels['topology.kubernetes.io/zone']"
+            - name: discovery.seed_hosts
+              value: elasticsearch-headless.monitoring.svc.cluster.local
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: cluster.initial_master_nodes
+              value: elasticsearch-0,elasticsearch-1,elasticsearch-2
+            - name: bootstrap.memory_lock
+              value: "true"
+          volumeMounts:
+            - name: elasticsearch-data
+              mountPath: /usr/share/elasticsearch/data
+            - name: elasticsearch-config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+            - name: elasticsearch-config
+              mountPath: /usr/share/elasticsearch/config/index-templates.json
+              subPath: index-templates.json
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+              scheme: HTTP
+            initialDelaySeconds: 60
+            timeoutSeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+              scheme: HTTP
+            initialDelaySeconds: 120
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+      volumes:
+        - name: elasticsearch-config
+          configMap:
+            name: elasticsearch-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - elasticsearch
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 120
+  volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: elasticsearch-storage
+        resources:
+          requests:
+            storage: 100Gi
