@@ -1,0 +1,118 @@
+# Test environment configuration for Document Management Platform
+# This file contains settings that override the default configuration for testing purposes
+
+# Environment identifier
+environment: test
+
+# HTTP Server configuration - using different port for test
+server:
+  host: 0.0.0.0
+  port: 8081
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 30s
+  tls: false
+
+# Logging configuration - more verbose for testing
+log:
+  level: debug
+  format: json
+  enable_console: true
+
+# Database configuration - using test database
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  dbname: document_mgmt_test
+  sslmode: disable
+
+# Storage configuration - using LocalStack for S3 testing
+storage:
+  region: us-east-1
+  endpoint: http://localhost:4566
+  access_key: test
+  secret_key: test
+  bucket: document-mgmt-test-docs
+  temp_bucket: document-mgmt-test-temp
+  quarantine_bucket: document-mgmt-test-quarantine
+  use_ssl: false
+  force_path_style: true
+
+# Elasticsearch configuration - using test indices
+elasticsearch:
+  addresses:
+    - http://localhost:9200
+  username: ""
+  password: ""
+  index_prefix: test_documents
+  enable_sniff: false
+
+# JWT Authentication - using test keys
+jwt:
+  secret: test_secret_key_for_testing_only
+  public_key: ./test/keys/jwt_public_test.pem
+  private_key: ./test/keys/jwt_private_test.pem
+  issuer: document-mgmt-test
+  expiration_time: 24h  # Extended for testing convenience
+
+# ClamAV configuration - using test instance
+clamav:
+  host: localhost
+  port: 3310
+  timeout: 10
+
+# AWS SQS configuration - using LocalStack
+sqs:
+  region: us-east-1
+  endpoint: http://localhost:4566
+  access_key: test
+  secret_key: test
+  document_queue_url: http://localhost:4566/000000000000/document-test-queue
+  scan_queue_url: http://localhost:4566/000000000000/scan-test-queue
+  index_queue_url: http://localhost:4566/000000000000/index-test-queue
+  use_ssl: false
+
+# AWS SNS configuration - using LocalStack
+sns:
+  region: us-east-1
+  endpoint: http://localhost:4566
+  access_key: test
+  secret_key: test
+  document_topic_arn: arn:aws:sns:us-east-1:000000000000:document-test-topic
+  event_topic_arn: arn:aws:sns:us-east-1:000000000000:event-test-topic
+  use_ssl: false
+
+# Redis configuration - using test instance
+redis:
+  address: localhost:6379
+  password: ""
+  db: 1  # Using a different database number for tests
+
+# API rate limiting - disabled for testing
+rate_limiter:
+  enabled: false
+  requests_per_minute: 1000
+
+# CORS configuration - permissive for testing
+cors:
+  allowed_origins:
+    - "*"
+  allow_credentials: true
+
+# Metrics configuration - may be disabled for unit tests
+metrics:
+  enabled: false
+  endpoint: /metrics
+
+# Tracing configuration - may be disabled for unit tests
+tracing:
+  enabled: false
+  endpoint: http://localhost:14268/api/traces
+  sample_rate: 1.0  # Sample everything in test
+
+# Document limits - higher limits for testing
+document_limits:
+  max_file_size: 209715200  # 200MB for testing
+  max_batch_size: 50  # Larger batch size for testing
