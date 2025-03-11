@@ -1,0 +1,281 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app: alertmanager
+    component: monitoring
+data:
+  alertmanager.yml: |
+    # AlertManager Configuration for Document Management Platform
+
+    # Global configuration
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: 'smtp.example.com:587'
+      smtp_from: 'alertmanager@document-mgmt.com'
+      smtp_auth_username: 'alertmanager'
+      smtp_auth_password: '${SMTP_PASSWORD}'
+      smtp_require_tls: true
+      pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+      slack_api_url: '${SLACK_API_URL}'
+
+    # Template files
+    templates:
+      - 'templates/*.tmpl'
+
+    # Alert routing configuration
+    route:
+      # Default receiver when no routes match
+      receiver: 'operations-team'
+      
+      # Group alerts by name, job, and severity
+      group_by: ['alertname', 'job', 'severity']
+      
+      # Wait 30s to buffer alerts of the same group before sending
+      group_wait: 30s
+      
+      # Wait 5m before sending new notifications for a group
+      group_interval: 5m
+      
+      # Wait 4h before resending an alert
+      repeat_interval: 4h
+      
+      # Routing rules, evaluated in order
+      routes:
+        # Critical severity alerts to PagerDuty (immediate notification)
+        - matchers: ['severity=critical']
+          receiver: 'pagerduty-critical'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+          continue: true
+        
+        # High severity alerts to PagerDuty (slightly delayed)
+        - matchers: ['severity=high']
+          receiver: 'pagerduty-high'
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 1h
+          continue: true
+        
+        # Security-related alerts to security team
+        - matchers: ['alertname=~"Virus.*|.*Auth.*|.*Access.*"']
+          receiver: 'security-team'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+          continue: true
+        
+        # Database-related alerts to database team
+        - matchers: ['alertname=~".*PostgreSQL.*|.*Elasticsearch.*"']
+          receiver: 'database-team'
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 1h
+          continue: true
+        
+        # Medium severity alerts to Slack
+        - matchers: ['severity=medium']
+          receiver: 'slack-alerts'
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 2h
+          continue: true
+        
+        # Low severity alerts to email
+        - matchers: ['severity=low']
+          receiver: 'email-alerts'
+          group_wait: 2m
+          group_interval: 30m
+          repeat_interval: 12h
+          continue: true
+
+    # Inhibition rules to prevent alert storms
+    inhibit_rules:
+      # Suppress service-specific alerts when the entire service is down
+      - source_matchers: ['alertname=ServiceDown']
+        target_matchers: ['alertname!~"ServiceDown|KubernetesNodeNotReady"']
+        equal: ['job', 'namespace']
+      
+      # Suppress node-specific alerts when the node is not ready
+      - source_matchers: ['alertname=KubernetesNodeNotReady']
+        target_matchers: ['node=~".*"']
+        equal: ['node']
+
+    # Notification receivers
+    receivers:
+      # Default operations team receiver (Slack)
+      - name: 'operations-team'
+        slack_configs:
+          - channel: '#ops-alerts'
+            send_resolved: true
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            footer: '{{ template "slack.default.footer" . }}'
+      
+      # Critical alerts receiver (PagerDuty + Slack #incidents)
+      - name: 'pagerduty-critical'
+        pagerduty_configs:
+          - service_key: '${PAGERDUTY_CRITICAL_KEY}'
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              severity: '{{ .CommonLabels.severity }}'
+              description: '{{ .CommonAnnotations.description }}'
+              instance: '{{ .CommonLabels.instance }}'
+              job: '{{ .CommonLabels.job }}'
+            client: 'AlertManager'
+            client_url: '{{ template "pagerduty.default.clientURL" . }}'
+            severity: 'critical'
+        slack_configs:
+          - channel: '#incidents'
+            send_resolved: true
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            footer: '{{ template "slack.default.footer" . }}'
+      
+      # High severity alerts receiver (PagerDuty + Slack #alerts)
+      - name: 'pagerduty-high'
+        pagerduty_configs:
+          - service_key: '${PAGERDUTY_HIGH_KEY}'
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              severity: '{{ .CommonLabels.severity }}'
+              description: '{{ .CommonAnnotations.description }}'
+              instance: '{{ .CommonLabels.instance }}'
+              job: '{{ .CommonLabels.job }}'
+            client: 'AlertManager'
+            client_url: '{{ template "pagerduty.default.clientURL" . }}'
+            severity: 'high'
+        slack_configs:
+          - channel: '#alerts'
+            send_resolved: true
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            footer: '{{ template "slack.default.footer" . }}'
+      
+      # Security team alerts receiver (PagerDuty + Slack #security-alerts)
+      - name: 'security-team'
+        pagerduty_configs:
+          - service_key: '${PAGERDUTY_SECURITY_KEY}'
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              severity: '{{ .CommonLabels.severity }}'
+              description: '{{ .CommonAnnotations.description }}'
+              instance: '{{ .CommonLabels.instance }}'
+              job: '{{ .CommonLabels.job }}'
+            client: 'AlertManager'
+            client_url: '{{ template "pagerduty.default.clientURL" . }}'
+            severity: 'critical'
+        slack_configs:
+          - channel: '#security-alerts'
+            send_resolved: true
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            footer: '{{ template "slack.default.footer" . }}'
+      
+      # Database team alerts receiver (PagerDuty + Slack #database-alerts)
+      - name: 'database-team'
+        pagerduty_configs:
+          - service_key: '${PAGERDUTY_DATABASE_KEY}'
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              severity: '{{ .CommonLabels.severity }}'
+              description: '{{ .CommonAnnotations.description }}'
+              instance: '{{ .CommonLabels.instance }}'
+              job: '{{ .CommonLabels.job }}'
+            client: 'AlertManager'
+            client_url: '{{ template "pagerduty.default.clientURL" . }}'
+            severity: 'high'
+        slack_configs:
+          - channel: '#database-alerts'
+            send_resolved: true
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            footer: '{{ template "slack.default.footer" . }}'
+      
+      # Medium severity alerts receiver (Slack only)
+      - name: 'slack-alerts'
+        slack_configs:
+          - channel: '#alerts'
+            send_resolved: true
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            footer: '{{ template "slack.default.footer" . }}'
+      
+      # Low severity alerts receiver (Email only)
+      - name: 'email-alerts'
+        email_configs:
+          - to: 'team@document-mgmt.com'
+            send_resolved: true
+            headers:
+              Subject: '{{ template "email.default.subject" . }}'
+            html: '{{ template "email.default.html" . }}'
+
+  default.tmpl: |
+    {{ define "slack.default.title" }}{{ if eq .Status "firing" }}🔥{{ else }}✅{{ end }} [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}{{ end }}
+
+    {{ define "slack.default.text" }}{{ range .Alerts }}
+    *Alert:* {{ .Labels.alertname }}{{ if .Labels.severity }} - `{{ .Labels.severity | toUpper }}`{{ end }}
+    *Description:* {{ .Annotations.description }}
+    *Details:*
+    {{ range .Labels.SortedPairs }} • *{{ .Name }}:* `{{ .Value }}`
+    {{ end }}{{ if .Annotations.summary }}
+    *Summary:* {{ .Annotations.summary }}{{ end }}
+    {{ end }}{{ end }}
+
+    {{ define "slack.default.footer" }}{{ if .CommonAnnotations.runbook }}*Runbook:* <{{ .CommonAnnotations.runbook }}|Link>{{ end }}
+    {{ if .CommonAnnotations.dashboard }}*Dashboard:* <{{ .CommonAnnotations.dashboard }}|Link>{{ end }}
+    *Alertmanager:* <{{ template "slack.default.alertmanagerURL" . }}|Link>{{ end }}
+
+    {{ define "slack.default.alertmanagerURL" }}{{ .ExternalURL }}/#/alerts?receiver={{ .Receiver }}{{ end }}
+
+    {{ define "pagerduty.default.description" }}{{ if .CommonAnnotations.summary }}{{ .CommonAnnotations.summary }}{{ else }}{{ .CommonLabels.alertname }}{{ end }}{{ end }}
+
+    {{ define "pagerduty.default.clientURL" }}{{ .ExternalURL }}{{ end }}
+
+    {{ define "email.default.subject" }}{{ if eq .Status "firing" }}[ALERT]{{ else }}[RESOLVED]{{ end }} {{ .CommonLabels.alertname }}{{ if .CommonLabels.severity }} ({{ .CommonLabels.severity | toUpper }}){{ end }}{{ end }}
+
+    {{ define "email.default.html" }}<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>{{ template "email.default.subject" . }}</title>
+      <style>
+        body { font-family: Arial, sans-serif; }
+        .alert { margin-bottom: 20px; padding: 15px; border-radius: 4px; }
+        .critical { background-color: #f8d7da; border: 1px solid #f5c6cb; }
+        .high { background-color: #fff3cd; border: 1px solid #ffeeba; }
+        .medium { background-color: #d1ecf1; border: 1px solid #bee5eb; }
+        .low { background-color: #d4edda; border: 1px solid #c3e6cb; }
+        .resolved { background-color: #d4edda; border: 1px solid #c3e6cb; }
+        .details { margin-top: 10px; }
+        .label { font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <h2>{{ if eq .Status "firing" }}ALERT{{ else }}RESOLVED{{ end }}: {{ .CommonLabels.alertname }}</h2>
+      {{ range .Alerts }}
+      <div class="alert {{ if eq .Labels.severity "critical" }}critical{{ else if eq .Labels.severity "high" }}high{{ else if eq .Labels.severity "medium" }}medium{{ else if eq .Labels.severity "low" }}low{{ else }}resolved{{ end }}">
+        <div><span class="label">Status:</span> {{ .Status | toUpper }}</div>
+        <div><span class="label">Severity:</span> {{ .Labels.severity | toUpper }}</div>
+        <div><span class="label">Description:</span> {{ .Annotations.description }}</div>
+        {{ if .Annotations.summary }}<div><span class="label">Summary:</span> {{ .Annotations.summary }}</div>{{ end }}
+        <div class="details">
+          <div><span class="label">Details:</span></div>
+          <ul>
+            {{ range .Labels.SortedPairs }}
+            <li><span class="label">{{ .Name }}:</span> {{ .Value }}</li>
+            {{ end }}
+          </ul>
+        </div>
+        {{ if .Annotations.runbook }}<div><span class="label">Runbook:</span> <a href="{{ .Annotations.runbook }}">Link</a></div>{{ end }}
+        {{ if .Annotations.dashboard }}<div><span class="label">Dashboard:</span> <a href="{{ .Annotations.dashboard }}">Link</a></div>{{ end }}
+      </div>
+      {{ end }}
+      <div>
+        <a href="{{ .ExternalURL }}">View in AlertManager</a>
+      </div>
+    </body>
+    </html>{{ end }}
