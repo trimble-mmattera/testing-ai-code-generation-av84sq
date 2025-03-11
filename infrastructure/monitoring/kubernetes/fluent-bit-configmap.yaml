@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: monitoring
+  labels:
+    app: fluent-bit
+    component: logging
+    part-of: document-management-platform
+data:
+  fluent-bit.conf: |
+    # Fluent Bit configuration for Document Management Platform
+
+    [SERVICE]
+        Flush             5
+        Log_Level         info
+        Parsers_File      parsers.conf
+        HTTP_Server       On
+        HTTP_Listen       0.0.0.0
+        HTTP_Port         2020
+        Health_Check      On
+        Storage.path      /var/log/flb-storage/
+        Storage.sync      normal
+        Storage.backlog.mem_limit 50M
+
+    # Container logs input
+    [INPUT]
+        Name              tail
+        Tag               kube.*
+        Path              /var/log/containers/*.log
+        Parser            docker
+        DB                /var/log/flb_kube.db
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    # Host system logs input
+    [INPUT]
+        Name              tail
+        Tag               host.*
+        Path              /var/log/syslog
+        Parser            syslog
+        DB                /var/log/flb_host.db
+
+    # Kubernetes metadata enrichment
+    [FILTER]
+        Name              kubernetes
+        Match             kube.*
+        Kube_URL          https://kubernetes.default.svc:443
+        Kube_CA_File      /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File   /var/run/secrets/kubernetes.io/serviceaccount/token
+        Merge_Log         On
+        K8S-Logging.Parser On
+        K8S-Logging.Exclude On
+
+    # Add environment and application metadata
+    [FILTER]
+        Name              record_modifier
+        Match             *
+        Record            environment ${ENVIRONMENT}
+        Record            app_name document-management-platform
+
+    # Exclude health check logs
+    [FILTER]
+        Name              grep
+        Match             kube.*
+        Exclude           log health check
+
+    # Parse JSON logs from document management services
+    [FILTER]
+        Name              parser
+        Match             kube.var.log.containers.document-*.log
+        Key_Name          log
+        Parser            json
+        Reserve_Data      True
+
+    # Extract tenant ID from logs for tenant isolation
+    [FILTER]
+        Name              lua
+        Match             kube.var.log.containers.document-*.log
+        script            extract_tenant.lua
+        call              extract_tenant
+
+    # Send Kubernetes logs to Elasticsearch
+    [OUTPUT]
+        Name              es
+        Match             kube.*
+        Host              ${ELASTICSEARCH_HOST}
+        Port              ${ELASTICSEARCH_PORT}
+        HTTP_User         ${ELASTICSEARCH_USER}
+        HTTP_Passwd       ${ELASTICSEARCH_PASSWORD}
+        TLS               On
+        TLS.Verify        On
+        Logstash_Format   On
+        Logstash_Prefix   document-mgmt-logs
+        Time_Key          @timestamp
+        Retry_Limit       5
+        Buffer_Size       10MB
+
+    # Send host system logs to Elasticsearch
+    [OUTPUT]
+        Name              es
+        Match             host.*
+        Host              ${ELASTICSEARCH_HOST}
+        Port              ${ELASTICSEARCH_PORT}
+        HTTP_User         ${ELASTICSEARCH_USER}
+        HTTP_Passwd       ${ELASTICSEARCH_PASSWORD}
+        TLS               On
+        TLS.Verify        On
+        Logstash_Format   On
+        Logstash_Prefix   system-logs
+        Time_Key          @timestamp
+        Retry_Limit       5
+
+  parsers.conf: |
+    # Parsers configuration for Fluent Bit
+
+    [PARSER]
+        Name   docker
+        Format json
+        Time_Key time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep On
+
+    [PARSER]
+        Name   syslog
+        Format regex
+        Regex  ^(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+        Time_Key time
+        Time_Format %b %d %H:%M:%S
+        Time_Keep On
+
+    [PARSER]
+        Name   json
+        Format json
+        Time_Key timestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep On
+
+    [PARSER]
+        Name   kv-pairs
+        Format regex
+        Regex  (?<key>[^=]+)=(?<value>[^ ]+)
+
+    [PARSER]
+        Name   document-service
+        Format json
+        Time_Key timestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep On
+
+  extract_tenant.lua: |
+    -- Lua script to extract tenant ID from logs
+
+    function extract_tenant(tag, timestamp, record)
+        -- Check if tenant_id already exists in the record
+        if record["tenant_id"] then
+            return 0, timestamp, record
+        end
+        
+        -- Try to extract from JWT token if present
+        if record["jwt"] then
+            local jwt = record["jwt"]
+            -- Extract payload part (second part of JWT)
+            local _, payload = jwt:match("([^.]+).([^.]+)")
+            if payload then
+                -- Base64 decode and parse JSON
+                local decoded = decode_base64(payload)
+                if decoded then
+                    local tenant = extract_json_field(decoded, "tenant_id")
+                    if tenant then
+                        record["tenant_id"] = tenant
+                        return 1, timestamp, record
+                    end
+                end
+            end
+        end
+        
+        -- Try to extract from log message if it contains tenant information
+        if record["log"] and type(record["log"]) == "string" then
+            local tenant = record["log"]:match('"tenant_id":"([^"]+)"')
+            if tenant then
+                record["tenant_id"] = tenant
+                return 1, timestamp, record
+            end
+        end
+        
+        -- Default tenant for logs that don't have tenant information
+        record["tenant_id"] = "system"
+        return 1, timestamp, record
+    end
+
+    function decode_base64(data)
+        local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+        data = string.gsub(data, '[^'..b..'=]', '')
+        return (data:gsub('.', function(x)
+            if (x == '=') then return '' end
+            local r,f='',b:find(x)-1
+            for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+            return r;
+        end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+            if (#x ~= 8) then return '' end
+            local c=0
+            for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+            return string.char(c)
+        end))
+    end
+
+    function extract_json_field(json_str, field_name)
+        local pattern = '"'..field_name..'":"([^"]+)"'
+        return json_str:match(pattern)
+    end
