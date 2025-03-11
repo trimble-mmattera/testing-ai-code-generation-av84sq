@@ -1,0 +1,114 @@
+apiVersion: v1 # Kubernetes API version
+kind: ConfigMap # Kubernetes resource type
+metadata:
+  name: grafana-datasources # Name of the ConfigMap for Grafana datasources
+  namespace: monitoring # Namespace where Grafana is deployed
+  labels:
+    app: grafana # Label for identifying Grafana components
+    component: monitoring # Component label for monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus-server:9090
+        isDefault: true
+        jsonData:
+          timeInterval: 15s
+          httpMethod: POST
+        editable: true
+
+      - name: Elasticsearch
+        type: elasticsearch
+        uid: elasticsearch
+        access: proxy
+        url: http://elasticsearch:9200
+        database: "[document-mgmt-logs-]YYYY.MM.DD"
+        jsonData:
+          interval: Daily
+          timeField: "@timestamp"
+          esVersion: 8.0.0 # Elasticsearch version
+          maxConcurrentShardRequests: 5
+          logMessageField: message
+          logLevelField: level
+        editable: true
+
+      - name: Jaeger
+        type: jaeger
+        uid: jaeger
+        access: proxy
+        url: http://jaeger-query:16686
+        jsonData:
+          nodeGraph:
+            enabled: true
+        editable: true
+
+      - name: CloudWatch
+        type: cloudwatch
+        uid: cloudwatch
+        access: proxy
+        jsonData:
+          authType: default
+          defaultRegion: us-east-1
+        editable: true
+
+      - name: PostgreSQL
+        type: postgres
+        uid: postgres
+        access: proxy
+        url: postgres-exporter:5432
+        database: document_mgmt
+        user: ${POSTGRES_USER}
+        secureJsonData:
+          password: ${POSTGRES_PASSWORD}
+        jsonData:
+          sslmode: disable
+          maxOpenConns: 10
+          maxIdleConns: 2
+          connMaxLifetime: 14400
+        editable: true
+
+    deleteDatasources:
+      - name: Graphite
+        orgId: 1
+---
+apiVersion: v1 # Kubernetes API version
+kind: ConfigMap # Kubernetes resource type
+metadata:
+  name: grafana-dashboard-providers # Name of the ConfigMap for Grafana dashboard providers
+  namespace: monitoring # Namespace where Grafana is deployed
+  labels:
+    app: grafana # Label for identifying Grafana components
+    component: monitoring # Component label for monitoring
+data:
+  dashboard-providers.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'document-management'
+        orgId: 1
+        folder: 'Document Management Platform'
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/document-management
+---
+apiVersion: v1 # Kubernetes API version
+kind: ConfigMap # Kubernetes resource type
+metadata:
+  name: grafana-dashboards # Name of the ConfigMap for Grafana dashboards
+  namespace: monitoring # Namespace where Grafana is deployed
+  labels:
+    app: grafana # Label for identifying Grafana components
+    component: monitoring # Component label for monitoring
+data:
+  api-dashboard.json: '{ "dashboard content from api-dashboard.json" }' # API Gateway dashboard configuration in JSON format
+  document-service-dashboard.json: '{ "dashboard content from document-service-dashboard.json" }' # Document Service dashboard configuration in JSON format
+  search-service-dashboard.json: '{ "dashboard content from search-service-dashboard.json" }' # Search Service dashboard configuration in JSON format
+  storage-service-dashboard.json: '{ "dashboard content from storage-service-dashboard.json" }' # Storage Service dashboard configuration in JSON format
+  business-metrics-dashboard.json: '{ "dashboard content from business-metrics-dashboard.json" }' # Business metrics dashboard configuration in JSON format
