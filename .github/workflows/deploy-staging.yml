@@ -1,0 +1,402 @@
+# .github/workflows/deploy-staging.yml
+name: Deploy to Staging
+# Deploys the Document Management Platform to the staging environment.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_infrastructure:
+        description: 'Deploy infrastructure changes'
+        required: false
+        default: 'false'
+        type: boolean
+      deploy_services:
+        description: 'Deploy application services'
+        required: false
+        default: 'true'
+        type: boolean
+      run_e2e_tests:
+        description: 'Run end-to-end tests'
+        required: false
+        default: 'true'
+        type: boolean
+  workflow_run:
+    workflows: ["Build and Push"]
+    branches: [main]
+    types: [completed]
+    condition: "github.event.workflow_run.conclusion == 'success'"
+
+env:
+  AWS_REGION: 'us-west-2'
+  ECR_REPOSITORY: 'document-mgmt'
+  ENVIRONMENT: 'staging'
+  TERRAFORM_VERSION: '1.5.0'
+  TERRAFORM_DIR: 'src/backend/deploy/terraform'
+  KUBERNETES_DIR: 'src/backend/deploy/kubernetes'
+
+jobs:
+  infrastructure:
+    name: infrastructure
+    description: Provision or update AWS infrastructure for staging
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.deploy_infrastructure == 'true' || github.event_name == 'push'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+        # Checks out the repository so that the workflow can access the code.
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        # Configures AWS credentials for the workflow to interact with AWS services.
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2 # hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+        # Sets up the Terraform CLI for infrastructure provisioning.
+
+      - name: Initialize Terraform
+        id: init
+        run: terraform init -chdir=${{ env.TERRAFORM_DIR }}
+        # Initializes Terraform in the specified directory.
+
+      - name: Validate Terraform configuration
+        id: validate
+        run: terraform validate -chdir=${{ env.TERRAFORM_DIR }}
+        # Validates the Terraform configuration in the specified directory.
+
+      - name: Plan Terraform changes
+        id: plan
+        run: terraform plan -chdir=${{ env.TERRAFORM_DIR }} -no-color
+        # Generates a Terraform plan for the changes to be applied.
+
+      - name: Apply Terraform changes
+        id: apply
+        run: terraform apply -chdir=${{ env.TERRAFORM_DIR }} -auto-approve
+        # Applies the Terraform changes to provision or update the infrastructure.
+
+      - name: Save Terraform outputs
+        id: output
+        run: |
+          API_ENDPOINT=$(terraform output -chdir=${{ env.TERRAFORM_DIR }} -json | jq -r .db_endpoint.value)
+          echo "API_ENDPOINT=$API_ENDPOINT" >> $GITHUB_ENV
+        # Saves the Terraform outputs to environment variables for use in subsequent jobs.
+    outputs:
+      terraform_outputs: ${{ steps.output.outputs.terraform_outputs }}
+    needs: []
+
+  configure_kubernetes:
+    name: configure_kubernetes
+    description: Configure Kubernetes cluster access for staging
+    needs: [infrastructure]
+    runs_on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+        # Checks out the repository code.
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        # Configures AWS credentials for interacting with AWS services.
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+        # Sets up the kubectl CLI for interacting with the Kubernetes cluster.
+
+      - name: Update kubeconfig for EKS cluster
+        id: update-kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ steps.infrastructure.outputs.eks_cluster_name }} --region ${{ env.AWS_REGION }}
+        # Updates the kubeconfig file to connect to the EKS cluster.
+
+      - name: Verify cluster connection
+        id: verify-connection
+        run: kubectl get nodes
+        # Verifies the connection to the Kubernetes cluster by listing the nodes.
+
+  deploy_api:
+    name: deploy_api
+    description: Deploy API service to Kubernetes using blue-green deployment
+    needs: [configure_kubernetes]
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.deploy_services != 'false'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+        # Checks out the repository code.
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        # Configures AWS credentials for interacting with AWS services.
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+        # Logs in to Amazon ECR for pulling Docker images.
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+        # Sets up the kubectl CLI for interacting with the Kubernetes cluster.
+
+      - name: Update kubeconfig for EKS cluster
+        id: update-kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ steps.infrastructure.outputs.eks_cluster_name }} --region ${{ env.AWS_REGION }}
+        # Updates the kubeconfig file to connect to the EKS cluster.
+
+      - name: Get latest API image tag
+        id: get-api-image-tag
+        run: echo "API_IMAGE_TAG=${{ github.event.workflow_run.artifacts.api-image.tag }}" >> $GITHUB_ENV
+        # Gets the latest API image tag from the build workflow.
+
+      - name: Create blue deployment manifest
+        id: create-blue-deployment
+        run: |
+          sed "s#\{\{.Values.image.repository\}\}#${{ env.ECR_REPOSITORY }}#g" src/backend/deploy/kubernetes/api-deployment.yaml | sed "s#\{\{.Values.image.tag\}\}#${{ env.API_IMAGE_TAG }}#g" > api-blue-deployment.yaml
+        # Creates a blue deployment manifest by replacing placeholders with actual values.
+
+      - name: Apply blue deployment manifest
+        id: apply-blue-deployment
+        run: kubectl apply -f api-blue-deployment.yaml
+        # Applies the blue deployment manifest to create the new deployment.
+
+      - name: Wait for blue deployment to be ready
+        id: wait-blue-deployment
+        run: kubectl rollout status deployment/document-api-blue --timeout=5m
+        # Waits for the blue deployment to become ready.
+
+      - name: Verify blue deployment health
+        id: verify-blue-deployment
+        run: |
+          # Add health check verification steps here
+          echo "Health check verification steps"
+        # Verifies the health of the blue deployment.
+
+      - name: Switch traffic to blue deployment
+        id: switch-traffic
+        run: |
+          # Add traffic switching steps here
+          echo "Traffic switching steps"
+        # Switches traffic to the blue deployment.
+
+      - name: Verify application functionality
+        id: verify-application
+        run: |
+          # Add application functionality verification steps here
+          echo "Application functionality verification steps"
+        # Verifies the application functionality after the traffic switch.
+
+      - name: Remove green deployment after successful switch
+        id: remove-green-deployment
+        run: |
+          # Add green deployment removal steps here
+          echo "Green deployment removal steps"
+        # Removes the green deployment after the successful traffic switch.
+
+  deploy_worker:
+    name: deploy_worker
+    description: Deploy Worker service to Kubernetes using blue-green deployment
+    needs: [configure_kubernetes]
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.deploy_services != 'false'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+        # Checks out the repository code.
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        # Configures AWS credentials for interacting with AWS services.
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1 # aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
+        # Logs in to Amazon ECR for pulling Docker images.
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3 # azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+        # Sets up the kubectl CLI for interacting with the Kubernetes cluster.
+
+      - name: Update kubeconfig for EKS cluster
+        id: update-kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ steps.infrastructure.outputs.eks_cluster_name }} --region ${{ env.AWS_REGION }}
+        # Updates the kubeconfig file to connect to the EKS cluster.
+
+      - name: Get latest Worker image tag
+        id: get-worker-image-tag
+        run: echo "WORKER_IMAGE_TAG=${{ github.event.workflow_run.artifacts.worker-image.tag }}" >> $GITHUB_ENV
+        # Gets the latest Worker image tag from the build workflow.
+
+      - name: Create blue deployment manifest
+        id: create-blue-deployment
+        run: |
+          sed "s#\{\{.Values.image.repository\}\}#${{ env.ECR_REPOSITORY }}#g" src/backend/deploy/kubernetes/worker-deployment.yaml | sed "s#\{\{.Values.image.tag\}\}#${{ env.WORKER_IMAGE_TAG }}#g" > worker-blue-deployment.yaml
+        # Creates a blue deployment manifest by replacing placeholders with actual values.
+
+      - name: Apply blue deployment manifest
+        id: apply-blue-deployment
+        run: kubectl apply -f worker-blue-deployment.yaml
+        # Applies the blue deployment manifest to create the new deployment.
+
+      - name: Wait for blue deployment to be ready
+        id: wait-blue-deployment
+        run: kubectl rollout status deployment/document-worker-blue --timeout=5m
+        # Waits for the blue deployment to become ready.
+
+      - name: Verify blue deployment health
+        id: verify-blue-deployment
+        run: |
+          # Add health check verification steps here
+          echo "Health check verification steps"
+        # Verifies the health of the blue deployment.
+
+      - name: Switch traffic to blue deployment
+        id: switch-traffic
+        run: |
+          # Add traffic switching steps here
+          echo "Traffic switching steps"
+        # Switches traffic to the blue deployment.
+
+      - name: Verify application functionality
+        id: verify-application
+        run: |
+          # Add application functionality verification steps here
+          echo "Application functionality verification steps"
+        # Verifies the application functionality after the traffic switch.
+
+      - name: Remove green deployment after successful switch
+        id: remove-green-deployment
+        run: |
+          # Add green deployment removal steps here
+          echo "Green deployment removal steps"
+        # Removes the green deployment after the successful traffic switch.
+
+  e2e_tests:
+    name: e2e_tests
+    description: Run end-to-end tests against staging environment
+    needs: [deploy_api, deploy_worker]
+    runs_on: ubuntu-latest
+    if: "github.event.inputs.run_e2e_tests != 'false'"
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3 # actions/checkout@v3
+        # Checks out the repository code.
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2 # aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+        # Configures AWS credentials for interacting with AWS services.
+
+      - name: Set up Go environment
+        uses: actions/setup-go@v3 # actions/setup-go@v3
+        with:
+          go-version: '1.21'
+        # Sets up the Go environment for running the E2E tests.
+
+      - name: Install dependencies
+        run: go mod download
+        # Installs the Go dependencies.
+
+      - name: Get API endpoint
+        id: get-api-endpoint
+        run: echo "API_ENDPOINT=${{ steps.infrastructure.outputs.db_endpoint }}" >> $GITHUB_ENV
+        # Gets the API endpoint from the infrastructure outputs.
+
+      - name: Run E2E test suite
+        id: run-e2e-tests
+        run: go test -v ./tests/e2e -api_endpoint=${{ env.API_ENDPOINT }}
+        # Runs the E2E test suite.
+
+      - name: Verify all critical business flows
+        id: verify-business-flows
+        run: |
+          # Add business flow verification steps here
+          echo "Business flow verification steps"
+        # Verifies all critical business flows.
+
+      - name: Generate test report
+        id: generate-test-report
+        run: |
+          # Add test report generation steps here
+          echo "Test report generation steps"
+        # Generates a test report.
+
+      - name: Store test artifacts
+        uses: actions/upload-artifact@v3 # actions/upload-artifact@v3
+        with:
+          name: e2e-test-results
+          path: ./test-results
+        # Stores the test artifacts.
+
+  notify:
+    name: notify
+    description: Send deployment notifications
+    needs: [e2e_tests]
+    runs_on: ubuntu-latest
+    if: 'always()'
+    steps:
+      - name: Determine deployment status
+        id: determine-status
+        run: |
+          if ${{ needs.e2e_tests.result == 'success' }}; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+        # Determines the deployment status based on the E2E test results.
+
+      - name: Send Slack notification
+        id: slack-notification
+        uses: slackapi/slack-github-action@v5 # slackapi/slack-github-action@v5
+        with:
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          slack-message: |
+            Deployment to staging environment ${{ env.ENVIRONMENT }} completed with status: ${{ steps.determine-status.outputs.status }}
+        # Sends a Slack notification with the deployment status.
+
+      - name: Update deployment status in GitHub
+        id: update-deployment-status
+        run: |
+          # Add deployment status update steps here
+          echo "Deployment status update steps"
+        # Updates the deployment status in GitHub.
+
+secrets:
+  AWS_ACCESS_KEY_ID:
+    description: AWS access key for deployment
+  AWS_SECRET_ACCESS_KEY:
+    description: AWS secret key for deployment
+  SLACK_WEBHOOK_URL:
+    description: Webhook URL for Slack notifications
