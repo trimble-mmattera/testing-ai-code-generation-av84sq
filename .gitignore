@@ -1,0 +1,83 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build artifacts
+bin/
+build/
+dist/
+
+# Test coverage
+coverage/
+coverage.txt
+coverage.html
+
+# Dependency directories
+vendor/
+node_modules/
+
+# Local configuration
+.env
+*.env
+config/local.yml
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+.terraformrc
+terraform.rc
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Docker
+data/
+docker-compose.override.yml
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+*.tmp
+
+# Generated files
+mocks/
+*_mock.go
+api/swagger/
+
+# Application specific
+src/backend/cmd/api/api
+src/backend/cmd/worker/worker
+
+# Kubernetes
+kubeconfig
+
+# AWS
+.aws/
+
+# Monitoring
+infrastructure/monitoring/grafana/data/
+infrastructure/monitoring/prometheus/data/
