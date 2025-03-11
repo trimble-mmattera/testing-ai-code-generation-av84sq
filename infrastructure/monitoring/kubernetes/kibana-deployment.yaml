@@ -1,0 +1,190 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Kibana deployment for Document Management Platform monitoring"
+  labels:
+    app: kibana
+    component: monitoring
+    part-of: document-management-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kibana
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: kibana
+        component: monitoring
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5601"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kibana
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      containers:
+      - name: kibana
+        image: docker.elastic.co/kibana/kibana:8.6.0
+        resources:
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+        ports:
+        - name: http
+          containerPort: 5601
+          protocol: TCP
+        env:
+        - name: ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch:9200"
+        - name: ELASTICSEARCH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: username
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: password
+        - name: KIBANA_PUBLIC_URL
+          value: "https://kibana.document-mgmt.example.com"
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kibana-secrets
+              key: encryption-key
+        - name: SERVER_NAME
+          value: "document-mgmt-kibana"
+        - name: XPACK_SECURITY_ENABLED
+          value: "true"
+        - name: XPACK_REPORTING_ENABLED
+          value: "true"
+        - name: XPACK_MONITORING_ENABLED
+          value: "true"
+        - name: TELEMETRY_ENABLED
+          value: "false"
+        volumeMounts:
+        - name: kibana-config
+          mountPath: /usr/share/kibana/config/kibana.yml
+          subPath: kibana.yml
+        - name: kibana-data
+          mountPath: /usr/share/kibana/data
+        readinessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+            scheme: HTTP
+          initialDelaySeconds: 60
+          timeoutSeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+            scheme: HTTP
+          initialDelaySeconds: 120
+          timeoutSeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          failureThreshold: 3
+      volumes:
+      - name: kibana-config
+        configMap:
+          name: kibana-config
+          items:
+          - key: kibana.yml
+            path: kibana.yml
+      - name: kibana-data
+        persistentVolumeClaim:
+          claimName: kibana-data
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - kibana
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kibana-data
+  namespace: monitoring
+  labels:
+    app: kibana
+    component: monitoring
+    part-of: document-management-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-config
+  namespace: monitoring
+  labels:
+    app: kibana
+    component: monitoring
+    part-of: document-management-platform
+data:
+  kibana.yml: |
+    server.name: document-mgmt-kibana
+    server.host: 0.0.0.0
+    server.port: 5601
+    server.publicBaseUrl: ${KIBANA_PUBLIC_URL}
+    server.maxPayloadBytes: 10485760
+    server.rewriteBasePath: true
+
+    elasticsearch.hosts: [${ELASTICSEARCH_HOSTS}]
+    elasticsearch.username: ${ELASTICSEARCH_USERNAME}
+    elasticsearch.password: ${ELASTICSEARCH_PASSWORD}
+    elasticsearch.requestTimeout: 30000
+    elasticsearch.shardTimeout: 30000
+    elasticsearch.ssl.verificationMode: certificate
+
+    kibana.index: .kibana
+    kibana.defaultAppId: discover
+
+    xpack.security.enabled: true
+    xpack.security.encryptionKey: ${ENCRYPTION_KEY}
+    xpack.security.session.idleTimeout: 1h
+    xpack.security.session.lifespan: 24h
+    xpack.security.audit.enabled: true
+
+    xpack.reporting.enabled: true
+    xpack.monitoring.enabled: true
+    xpack.monitoring.kibana.collection.enabled: true
+
+    logging.root.level: info
+    logging.appenders.file.type: file
+    logging.appenders.file.fileName: /var/log/kibana/kibana.log
+    logging.appenders.file.layout.type: json
+
+    telemetry.enabled: false
