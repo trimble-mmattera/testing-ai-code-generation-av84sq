@@ -1,0 +1,327 @@
+groups:
+  - name: service_availability
+    rules:
+    - alert: ServiceDown
+      expr: up{job=~"document-service|storage-service|search-service|folder-service|virus-scanning-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Service {{ $labels.job }} is down"
+        description: "Service {{ $labels.job }} in namespace {{ $labels.namespace }} has been down for more than 1 minute."
+        dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/service-down"
+    - alert: KubernetesNodeNotReady
+      expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Kubernetes node {{ $labels.node }} not ready"
+        description: "Node {{ $labels.node }} has been in NotReady state for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/kubernetes-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/node-not-ready"
+    - alert: PodCrashLooping
+      expr: increase(kube_pod_container_status_restarts_total{namespace=~"document-mgmt-.*"}[1h]) > 5
+      for: 10m
+      labels:
+        severity: high
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted more than 5 times in the last hour."
+        dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/pod-crash-looping"
+
+  - name: api_performance
+    rules:
+    - alert: APIHighResponseTime
+      expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~"document-service|storage-service|search-service|folder-service"}[5m])) by (job, le)) > 2
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High API response time for {{ $labels.job }}"
+        description: "95th percentile response time for {{ $labels.job }} is above 2 seconds for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/high-response-time"
+    - alert: APIHighErrorRate
+      expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) > 0.01
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High API error rate for {{ $labels.job }}"
+        description: "Error rate for {{ $labels.job }} is above 1% for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/high-error-rate"
+    - alert: APIEndpointHighResponseTime
+      expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler!=""}[5m])) by (job, handler, le)) > 2
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High response time for endpoint {{ $labels.handler }}"
+        description: "95th percentile response time for {{ $labels.job }} endpoint {{ $labels.handler }} is above 2 seconds for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/api-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/high-endpoint-response-time"
+
+  - name: document_processing
+    rules:
+    - alert: DocumentProcessingDelay
+      expr: histogram_quantile(0.95, sum(rate(document_processing_duration_seconds_bucket[5m])) by (le)) > 300
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "Document processing delay detected"
+        description: "95th percentile document processing time is above 5 minutes (300 seconds) for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/document-service-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/document-processing-delay"
+    - alert: DocumentProcessingQueueBacklog
+      expr: sum(aws_sqs_approximate_number_of_messages_visible{queue_name=~".*document.*|.*virus.*"}) > 100
+      for: 15m
+      labels:
+        severity: high
+      annotations:
+        summary: "Document processing queue backlog"
+        description: "Document processing queue has more than 100 messages for more than 15 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/document-service-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/queue-backlog"
+    - alert: DocumentProcessingHighFailureRate
+      expr: sum(rate(document_processing_failures_total[5m])) / sum(rate(document_processing_total[5m])) > 0.05
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High document processing failure rate"
+        description: "Document processing failure rate is above 5% for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/document-service-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/processing-failures"
+
+  - name: search_performance
+    rules:
+    - alert: SearchHighResponseTime
+      expr: histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket[5m])) by (le)) > 2
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High search response time"
+        description: "95th percentile search response time is above 2 seconds for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/search-service-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/search-performance"
+    - alert: ElasticsearchClusterHealth
+      expr: elasticsearch_cluster_health_status{color="red"} == 1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Elasticsearch cluster health is red"
+        description: "Elasticsearch cluster health has been red for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/elasticsearch-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/elasticsearch-red"
+    - alert: ElasticsearchClusterHealthYellow
+      expr: elasticsearch_cluster_health_status{color="yellow"} == 1
+      for: 15m
+      labels:
+        severity: high
+      annotations:
+        summary: "Elasticsearch cluster health is yellow"
+        description: "Elasticsearch cluster health has been yellow for more than 15 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/elasticsearch-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/elasticsearch-yellow"
+
+  - name: database_performance
+    rules:
+    - alert: PostgreSQLHighCPU
+      expr: avg by (instance) (rate(node_cpu_seconds_total{mode!="idle", instance=~".*postgres.*"}[5m])) > 0.8
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "PostgreSQL high CPU usage"
+        description: "PostgreSQL instance {{ $labels.instance }} has CPU usage above 80% for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/postgres-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/postgres-high-cpu"
+    - alert: PostgreSQLHighConnections
+      expr: sum(pg_stat_activity_count) by (instance) > (sum(pg_settings_max_connections) by (instance) * 0.8)
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "PostgreSQL high connection count"
+        description: "PostgreSQL instance {{ $labels.instance }} is using more than 80% of available connections for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/postgres-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/postgres-connections"
+    - alert: PostgreSQLReplicationLag
+      expr: pg_stat_replication_lag_bytes > 50000000
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "PostgreSQL replication lag"
+        description: "PostgreSQL replication lag is above 50MB for more than 5 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/postgres-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/postgres-replication-lag"
+
+  - name: resource_utilization
+    rules:
+    - alert: HighCPUUsage
+      expr: sum(rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m])) by (pod, namespace) / sum(kube_pod_container_resource_limits{resource="cpu"}) by (pod, namespace) > 0.85
+      for: 10m
+      labels:
+        severity: high
+      annotations:
+        summary: "High CPU usage for pod {{ $labels.pod }}"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has CPU usage above 85% of its limit for more than 10 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/kubernetes-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/high-cpu-usage"
+    - alert: HighMemoryUsage
+      expr: sum(container_memory_usage_bytes{container!="", container!="POD"}) by (pod, namespace) / sum(kube_pod_container_resource_limits{resource="memory"}) by (pod, namespace) > 0.9
+      for: 10m
+      labels:
+        severity: high
+      annotations:
+        summary: "High memory usage for pod {{ $labels.pod }}"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has memory usage above 90% of its limit for more than 10 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/kubernetes-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/high-memory-usage"
+    - alert: DiskSpaceLow
+      expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Low disk space on {{ $labels.instance }}"
+        description: "Node {{ $labels.instance }} has less than 10% free disk space on the root filesystem."
+        dashboard: "https://grafana.document-mgmt.com/d/node-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/disk-space-low"
+    - alert: S3StorageGrowthHigh
+      expr: deriv(aws_s3_bucket_size_bytes[1d]) > 50 * 1024 * 1024 * 1024
+      for: 1d
+      labels:
+        severity: medium
+      annotations:
+        summary: "S3 storage growth rate is high"
+        description: "S3 storage is growing at more than 50GB per day."
+        dashboard: "https://grafana.document-mgmt.com/d/storage-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/s3-growth-high"
+
+  - name: security_alerts
+    rules:
+    - alert: VirusDetected
+      expr: increase(virus_detected_total[5m]) > 0
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Virus detected in uploaded document"
+        description: "A virus has been detected in an uploaded document in namespace {{ $labels.namespace }}."
+        dashboard: "https://grafana.document-mgmt.com/d/security-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/virus-detected"
+    - alert: AuthenticationFailuresHigh
+      expr: sum(increase(authentication_failures_total[15m])) by (job) > 10
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High authentication failures for {{ $labels.job }}"
+        description: "Service {{ $labels.job }} has more than 10 authentication failures in the last 15 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/security-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/auth-failures"
+    - alert: CrossTenantAccessAttempt
+      expr: increase(cross_tenant_access_attempts_total[5m]) > 0
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Cross-tenant access attempt detected"
+        description: "A cross-tenant access attempt has been detected in service {{ $labels.job }}."
+        dashboard: "https://grafana.document-mgmt.com/d/security-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/cross-tenant-access"
+    - alert: AuthorizationFailuresHigh
+      expr: sum(increase(authorization_failures_total[15m])) by (job) > 20
+      for: 5m
+      labels:
+        severity: high
+      annotations:
+        summary: "High authorization failures for {{ $labels.job }}"
+        description: "Service {{ $labels.job }} has more than 20 authorization failures in the last 15 minutes."
+        dashboard: "https://grafana.document-mgmt.com/d/security-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/auth-failures"
+
+  - name: sla_compliance
+    rules:
+    - alert: APIResponseTimeSLABreach
+      expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1h])) by (le)) > 2
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "API response time SLA breach"
+        description: "99th percentile API response time is above 2 seconds for more than 5 minutes, breaching the SLA."
+        dashboard: "https://grafana.document-mgmt.com/d/sla-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/sla-breach-response-time"
+    - alert: DocumentProcessingSLABreach
+      expr: histogram_quantile(0.99, sum(rate(document_processing_duration_seconds_bucket[1h])) by (le)) > 300
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Document processing SLA breach"
+        description: "99th percentile document processing time is above 5 minutes (300 seconds) for more than 5 minutes, breaching the SLA."
+        dashboard: "https://grafana.document-mgmt.com/d/sla-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/sla-breach-processing"
+    - alert: SearchResponseTimeSLABreach
+      expr: histogram_quantile(0.99, sum(rate(search_duration_seconds_bucket[1h])) by (le)) > 2
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Search response time SLA breach"
+        description: "99th percentile search response time is above 2 seconds for more than 5 minutes, breaching the SLA."
+        dashboard: "https://grafana.document-mgmt.com/d/sla-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/sla-breach-search"
+    - alert: APIErrorRateSLABreach
+      expr: sum(rate(http_requests_total{status=~"5.."}[1h])) / sum(rate(http_requests_total[1h])) > 0.01
+      for: 15m
+      labels:
+        severity: critical
+      annotations:
+        summary: "API error rate SLA breach"
+        description: "API error rate is above 1% for more than 15 minutes, breaching the SLA."
+        dashboard: "https://grafana.document-mgmt.com/d/sla-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/sla-breach-error-rate"
+
+  - name: business_metrics
+    rules:
+    - alert: DocumentUploadVolumeLow
+      expr: sum(increase(document_uploads_total[24h])) < 1000
+      for: 1d
+      labels:
+        severity: medium
+      annotations:
+        summary: "Document upload volume is low"
+        description: "Less than 1,000 documents were uploaded in the last 24 hours, which is significantly below the expected 10,000 daily uploads."
+        dashboard: "https://grafana.document-mgmt.com/d/business-metrics-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/low-upload-volume"
+    - alert: DocumentProcessingFailureRateHigh
+      expr: sum(increase(document_processing_failures_total[24h])) / sum(increase(document_processing_total[24h])) > 0.05
+      for: 1d
+      labels:
+        severity: high
+      annotations:
+        summary: "Document processing failure rate is high"
+        description: "Document processing failure rate is above 5% over the last 24 hours."
+        dashboard: "https://grafana.document-mgmt.com/d/business-metrics-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/high-processing-failure-rate"
+    - alert: SearchVolumeAnomalyDetected
+      expr: abs(sum(rate(search_requests_total[1h])) - sum(rate(search_requests_total[1h] offset 24h))) / sum(rate(search_requests_total[1h] offset 24h)) > 0.5
+      for: 3h
+      labels:
+        severity: medium
+      annotations:
+        summary: "Search volume anomaly detected"
+        description: "Search volume has changed by more than 50% compared to the same time yesterday."
+        dashboard: "https://grafana.document-mgmt.com/d/business-metrics-dashboard"
+        runbook: "https://runbooks.document-mgmt.com/search-volume-anomaly"
