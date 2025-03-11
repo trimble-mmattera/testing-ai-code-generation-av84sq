@@ -1,0 +1,2155 @@
+openapi: 3.0.3
+info:
+  title: Document Management Platform API
+  description: API for the Document Management Platform that enables customers to upload, search, and download documents through API integration.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+  license:
+    name: Proprietary
+    url: https://example.com/license
+
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production API Server
+  - url: https://staging-api.example.com/api/v1
+    description: Staging API Server
+  - url: http://localhost:8080/api/v1
+    description: Local Development Server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health/liveness:
+    get:
+      summary: Liveness probe
+      description: Checks if the API server is running
+      operationId: getLiveness
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: API server is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: API server is not running properly
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health/readiness:
+    get:
+      summary: Readiness probe
+      description: Checks if the API server is ready to handle requests
+      operationId: getReadiness
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: API server is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: API server is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health/deep:
+    get:
+      summary: Deep health check
+      description: Performs a comprehensive health check of all system components
+      operationId: getDeepHealth
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: All system components are healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepHealthResponse'
+        '503':
+          description: One or more system components are unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepHealthResponse'
+
+  /documents:
+    post:
+      summary: Upload document
+      description: Uploads a new document to the platform
+      operationId: uploadDocument
+      tags:
+        - Documents
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateDocumentRequest'
+      responses:
+        '202':
+          description: Document accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentUploadResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: List documents
+      description: Lists documents with optional filtering and pagination
+      operationId: listDocuments
+      tags:
+        - Documents
+      parameters:
+        - name: folderId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter documents by folder ID
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [processing, available, quarantined, failed]
+          description: Filter documents by status
+        - name: contentType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter documents by content type
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter documents by name (partial match)
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          description: Filter documents by tags
+        - name: metadata
+          in: query
+          required: false
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+          style: deepObject
+          description: Filter documents by metadata key-value pairs
+        - name: createdAfter
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter documents created after this timestamp
+        - name: createdBefore
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter documents created before this timestamp
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Number of items per page
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name, createdAt, updatedAt, size]
+            default: createdAt
+          description: Field to sort by
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order
+      responses:
+        '200':
+          description: Documents retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentListResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/{id}:
+    get:
+      summary: Get document metadata
+      description: Retrieves metadata for a specific document
+      operationId: getDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document ID
+      responses:
+        '200':
+          description: Document metadata retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDTO'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update document
+      description: Updates metadata for a specific document
+      operationId: updateDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDocumentRequest'
+      responses:
+        '200':
+          description: Document updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDTO'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete document
+      description: Deletes a specific document
+      operationId: deleteDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document ID
+      responses:
+        '200':
+          description: Document deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/{id}/content:
+    get:
+      summary: Download document
+      description: "Downloads a specific document's content"
+      operationId: downloadDocument
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document ID
+      responses:
+        '200':
+          description: Document content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/{id}/content/url:
+    get:
+      summary: Get document download URL
+      description: Generates a presigned URL for downloading a specific document
+      operationId: getDocumentDownloadUrl
+      tags:
+        - Documents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document ID
+        - name: expiresIn
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 3600
+          description: URL expiration time in seconds
+      responses:
+        '200':
+          description: Document download URL generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDownloadResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/batch/download:
+    post:
+      summary: Batch download documents
+      description: Downloads multiple documents as a compressed archive
+      operationId: batchDownloadDocuments
+      tags:
+        - Documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - documentIds
+              properties:
+                documentIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: IDs of documents to download
+                  example: ["123e4567-e89b-12d3-a456-426614174000", "223e4567-e89b-12d3-a456-426614174001"]
+      responses:
+        '200':
+          description: Compressed archive containing the requested documents
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '202':
+          description: Batch download has been accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchDownloadResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/status/{processingId}:
+    get:
+      summary: Check document processing status
+      description: Checks the status of a document upload or batch processing operation
+      operationId: getDocumentProcessingStatus
+      tags:
+        - Documents
+      parameters:
+        - name: processingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Processing ID received during upload or batch operation
+      responses:
+        '200':
+          description: Processing status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingStatusResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Processing ID not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /search:
+    post:
+      summary: Search documents
+      description: Searches documents by content and metadata with advanced filtering
+      operationId: searchDocuments
+      tags:
+        - Search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /folders:
+    post:
+      summary: Create folder
+      description: Creates a new folder
+      operationId: createFolder
+      tags:
+        - Folders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFolderRequest'
+      responses:
+        '201':
+          description: Folder created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderDTO'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Folder already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: List root folders
+      description: Lists folders at the root level with optional pagination
+      operationId: listRootFolders
+      tags:
+        - Folders
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Number of items per page
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name, createdAt, updatedAt]
+            default: name
+          description: Field to sort by
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+          description: Sort order
+      responses:
+        '200':
+          description: Folders retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /folders/{id}:
+    get:
+      summary: Get folder details
+      description: Retrieves details for a specific folder
+      operationId: getFolder
+      tags:
+        - Folders
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Folder ID
+      responses:
+        '200':
+          description: Folder details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderDTO'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Folder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update folder
+      description: Updates details for a specific folder
+      operationId: updateFolder
+      tags:
+        - Folders
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Folder ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFolderRequest'
+      responses:
+        '200':
+          description: Folder updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderDTO'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Folder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Folder with this name already exists in the parent folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete folder
+      description: Deletes a specific folder
+      operationId: deleteFolder
+      tags:
+        - Folders
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Folder ID
+        - name: recursive
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Whether to recursively delete all contents of the folder
+      responses:
+        '200':
+          description: Folder deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Folder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Folder is not empty and recursive parameter is false
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /folders/{id}/contents:
+    get:
+      summary: List folder contents
+      description: Lists the contents (sub-folders and documents) of a specific folder
+      operationId: listFolderContents
+      tags:
+        - Folders
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Folder ID
+        - name: includeSubfolders
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Whether to include contents from subfolders recursively
+        - name: contentType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, folders, documents]
+            default: all
+          description: Type of content to include in the results
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Number of items per page
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name, type, createdAt, updatedAt, size]
+            default: type
+          description: Field to sort by (type sorts folders first, then documents)
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+          description: Sort order
+      responses:
+        '200':
+          description: Folder contents retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderContentsResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Folder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks:
+    post:
+      summary: Register webhook
+      description: Registers a new webhook for receiving event notifications
+      operationId: createWebhook
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDTO'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: List webhooks
+      description: Lists registered webhooks
+      operationId: listWebhooks
+      tags:
+        - Webhooks
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Number of items per page
+      responses:
+        '200':
+          description: Webhooks retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/{id}:
+    get:
+      summary: Get webhook details
+      description: Retrieves details for a specific webhook
+      operationId: getWebhook
+      tags:
+        - Webhooks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Webhook ID
+      responses:
+        '200':
+          description: Webhook details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDTO'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update webhook
+      description: Updates a specific webhook
+      operationId: updateWebhook
+      tags:
+        - Webhooks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Webhook ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDTO'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete webhook
+      description: Deletes a specific webhook
+      operationId: deleteWebhook
+      tags:
+        - Webhooks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Webhook ID
+      responses:
+        '200':
+          description: Webhook deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authentication. The token must include tenant context and user roles.
+
+  schemas:
+    CreateDocumentRequest:
+      type: object
+      required:
+        - name
+        - folderId
+        - file
+      properties:
+        name:
+          type: string
+          description: Document name
+          example: invoice-2023-01.pdf
+        folderId:
+          type: string
+          format: uuid
+          description: ID of the folder where the document will be stored
+          example: 123e4567-e89b-12d3-a456-426614174000
+        file:
+          type: string
+          format: binary
+          description: Document file content
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom metadata key-value pairs
+          example:
+            department: finance
+            year: "2023"
+            customer: acme-corp
+        tags:
+          type: array
+          items:
+            type: string
+          description: Tags to associate with the document
+          example: [invoice, "2023", acme-corp]
+
+    UpdateDocumentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: New document name
+          example: invoice-2023-01-revised.pdf
+        folderId:
+          type: string
+          format: uuid
+          description: ID of the folder to move the document to
+          example: 123e4567-e89b-12d3-a456-426614174000
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Updated metadata key-value pairs (replaces existing metadata)
+          example:
+            department: finance
+            year: "2023"
+            customer: acme-corp
+            status: paid
+        addTags:
+          type: array
+          items:
+            type: string
+          description: Tags to add to the document
+          example: [paid, processed]
+        removeTags:
+          type: array
+          items:
+            type: string
+          description: Tags to remove from the document
+          example: [pending]
+
+    DocumentDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Document ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        name:
+          type: string
+          description: Document name
+          example: invoice-2023-01.pdf
+        contentType:
+          type: string
+          description: MIME type of the document
+          example: application/pdf
+        size:
+          type: integer
+          format: int64
+          description: Document size in bytes
+          example: 1048576
+        folderId:
+          type: string
+          format: uuid
+          description: ID of the folder containing the document
+          example: 123e4567-e89b-12d3-a456-426614174000
+        status:
+          type: string
+          description: Document processing status
+          enum: [processing, available, quarantined, failed]
+          example: available
+        createdAt:
+          type: string
+          format: date-time
+          description: Document creation timestamp
+          example: "2023-01-15T14:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Document last update timestamp
+          example: "2023-01-15T14:30:00Z"
+        createdBy:
+          type: string
+          format: uuid
+          description: ID of the user who created the document
+          example: 123e4567-e89b-12d3-a456-426614174000
+        metadata:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentMetadataDTO'
+          description: Document metadata
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagDTO'
+          description: Document tags
+        latestVersion:
+          $ref: '#/components/schemas/DocumentVersionDTO'
+          description: Latest version of the document
+
+    DocumentMetadataDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Metadata entry ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        key:
+          type: string
+          description: Metadata key
+          example: department
+        value:
+          type: string
+          description: Metadata value
+          example: finance
+        createdAt:
+          type: string
+          format: date-time
+          description: Metadata creation timestamp
+          example: "2023-01-15T14:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Metadata last update timestamp
+          example: "2023-01-15T14:30:00Z"
+
+    DocumentVersionDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Version ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        versionNumber:
+          type: integer
+          description: Sequential version number
+          example: 1
+        size:
+          type: integer
+          format: int64
+          description: Version size in bytes
+          example: 1048576
+        contentHash:
+          type: string
+          description: SHA-256 hash of content
+          example: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        status:
+          type: string
+          description: Version processing status
+          enum: [processing, available, quarantined, failed]
+          example: available
+        createdAt:
+          type: string
+          format: date-time
+          description: Version creation timestamp
+          example: "2023-01-15T14:30:00Z"
+        createdBy:
+          type: string
+          format: uuid
+          description: ID of the user who created the version
+          example: 123e4567-e89b-12d3-a456-426614174000
+
+    TagDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Tag ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        name:
+          type: string
+          description: Tag name
+          example: invoice
+
+    DocumentUploadResponse:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+          description: ID of the uploaded document
+          example: 123e4567-e89b-12d3-a456-426614174000
+        status:
+          type: string
+          description: Document processing status
+          enum: [processing, available, quarantined, failed]
+          example: processing
+        message:
+          type: string
+          description: Additional information about the upload
+          example: Document accepted for processing
+        processingId:
+          type: string
+          format: uuid
+          description: ID for tracking the processing status
+          example: 123e4567-e89b-12d3-a456-426614174000
+
+    DocumentDownloadResponse:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+          description: Document ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        name:
+          type: string
+          description: Document name
+          example: invoice-2023-01.pdf
+        contentType:
+          type: string
+          description: MIME type of the document
+          example: application/pdf
+        size:
+          type: integer
+          format: int64
+          description: Document size in bytes
+          example: 1048576
+        downloadUrl:
+          type: string
+          format: uri
+          description: Presigned URL for downloading the document
+          example: https://example-bucket.s3.amazonaws.com/documents/123e4567-e89b-12d3-a456-426614174000?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...
+        expiresIn:
+          type: integer
+          description: URL expiration time in seconds
+          example: 3600
+
+    BatchDownloadResponse:
+      type: object
+      properties:
+        batchId:
+          type: string
+          format: uuid
+          description: Batch ID for tracking the download
+          example: 123e4567-e89b-12d3-a456-426614174000
+        status:
+          type: string
+          enum: [processing, completed, failed]
+          description: Status of the batch download
+          example: processing
+        documentCount:
+          type: integer
+          description: Number of documents in the batch
+          example: 10
+        downloadUrl:
+          type: string
+          format: uri
+          description: Presigned URL for downloading the archive (only present when status is completed)
+          example: https://example-bucket.s3.amazonaws.com/batches/123e4567-e89b-12d3-a456-426614174000?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...
+        expiresIn:
+          type: integer
+          description: URL expiration time in seconds (only present when downloadUrl is provided)
+          example: 3600
+
+    ProcessingStatusResponse:
+      type: object
+      properties:
+        processingId:
+          type: string
+          format: uuid
+          description: Processing ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+          description: Current processing status
+          example: processing
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Processing progress in percentage (0-100)
+          example: 75
+        message:
+          type: string
+          description: Additional status information
+          example: "Virus scanning in progress"
+        resourceId:
+          type: string
+          format: uuid
+          description: ID of the resource being processed (document, batch, etc.)
+          example: 123e4567-e89b-12d3-a456-426614174000
+        resourceType:
+          type: string
+          enum: [document, batch]
+          description: Type of resource being processed
+          example: document
+        createdAt:
+          type: string
+          format: date-time
+          description: Processing start timestamp
+          example: "2023-01-15T14:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last status update timestamp
+          example: "2023-01-15T14:32:15Z"
+
+    DocumentListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentDTO'
+          description: List of documents
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+          description: Pagination information
+
+    SearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Full-text search query
+          example: "invoice agreement"
+        filters:
+          type: object
+          properties:
+            contentTypes:
+              type: array
+              items:
+                type: string
+              description: Filter by content types
+              example: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+            folderIds:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: Filter by folder IDs
+              example: ["123e4567-e89b-12d3-a456-426614174000"]
+            createdAfter:
+              type: string
+              format: date-time
+              description: Filter documents created after this timestamp
+              example: "2023-01-01T00:00:00Z"
+            createdBefore:
+              type: string
+              format: date-time
+              description: Filter documents created before this timestamp
+              example: "2023-12-31T23:59:59Z"
+            tags:
+              type: array
+              items:
+                type: string
+              description: Filter by tags
+              example: ["invoice", "2023"]
+            metadata:
+              type: object
+              additionalProperties:
+                type: string
+              description: Filter by metadata key-value pairs
+              example:
+                department: finance
+                year: "2023"
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+              default: 1
+              minimum: 1
+              description: Page number
+              example: 1
+            pageSize:
+              type: integer
+              default: 20
+              minimum: 1
+              maximum: 100
+              description: Number of items per page
+              example: 20
+        sort:
+          type: object
+          properties:
+            field:
+              type: string
+              enum: [relevance, name, createdAt, updatedAt, size]
+              default: relevance
+              description: Field to sort by
+              example: relevance
+            order:
+              type: string
+              enum: [asc, desc]
+              default: desc
+              description: Sort order
+              example: desc
+
+    SearchResponse:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The search query that was executed
+          example: "invoice agreement"
+        totalResults:
+          type: integer
+          description: Total number of documents matching the search
+          example: 42
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResultDTO'
+          description: Search results
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+          description: Pagination information
+
+    SearchResultDTO:
+      type: object
+      properties:
+        document:
+          $ref: '#/components/schemas/DocumentDTO'
+          description: Document information
+        score:
+          type: number
+          format: float
+          description: Relevance score (higher is more relevant)
+          example: 0.89
+        highlights:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Field where the match was found
+                example: "content"
+              snippet:
+                type: string
+                description: Text snippet with highlighted match
+                example: "This <em>invoice</em> contains the terms of our <em>agreement</em>"
+          description: Highlighted matches in the document
+
+    CreateFolderRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Folder name
+          example: "Finance"
+        parentId:
+          type: string
+          format: uuid
+          description: ID of the parent folder (null for root folders)
+          example: 123e4567-e89b-12d3-a456-426614174000
+        description:
+          type: string
+          description: Folder description
+          example: "Financial documents for 2023"
+
+    UpdateFolderRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: New folder name
+          example: "Finance 2023"
+        parentId:
+          type: string
+          format: uuid
+          description: ID of the new parent folder (null for root folders)
+          example: 123e4567-e89b-12d3-a456-426614174000
+        description:
+          type: string
+          description: Updated folder description
+          example: "Financial documents for fiscal year 2023"
+
+    FolderDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Folder ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        name:
+          type: string
+          description: Folder name
+          example: "Finance"
+        parentId:
+          type: string
+          format: uuid
+          description: ID of the parent folder (null for root folders)
+          example: 123e4567-e89b-12d3-a456-426614174000
+        path:
+          type: string
+          description: Full path to the folder
+          example: "/Finance/2023"
+        description:
+          type: string
+          description: Folder description
+          example: "Financial documents for 2023"
+        createdAt:
+          type: string
+          format: date-time
+          description: Folder creation timestamp
+          example: "2023-01-15T14:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Folder last update timestamp
+          example: "2023-01-15T14:30:00Z"
+        createdBy:
+          type: string
+          format: uuid
+          description: ID of the user who created the folder
+          example: 123e4567-e89b-12d3-a456-426614174000
+
+    FolderListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FolderDTO'
+          description: List of folders
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+          description: Pagination information
+
+    FolderContentsResponse:
+      type: object
+      properties:
+        folder:
+          $ref: '#/components/schemas/FolderDTO'
+          description: Information about the current folder
+        folders:
+          type: array
+          items:
+            $ref: '#/components/schemas/FolderDTO'
+          description: Sub-folders within the current folder
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentDTO'
+          description: Documents within the current folder
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+          description: Pagination information
+
+    CreateWebhookRequest:
+      type: object
+      required:
+        - url
+        - events
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Webhook endpoint URL
+          example: "https://api.example.com/webhooks/docevents"
+        events:
+          type: array
+          items:
+            type: string
+            enum: [document.uploaded, document.processed, document.downloaded, document.quarantined, folder.created, folder.updated]
+          description: Events to subscribe to
+          example: ["document.processed", "document.quarantined"]
+        description:
+          type: string
+          description: Webhook description
+          example: "Webhook for document processing events"
+        secret:
+          type: string
+          description: Secret key for webhook signature validation (if not provided, a random one will be generated)
+          example: "your-secret-key"
+        active:
+          type: boolean
+          default: true
+          description: Whether the webhook is active
+          example: true
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Updated webhook endpoint URL
+          example: "https://api.example.com/webhooks/docevents-v2"
+        events:
+          type: array
+          items:
+            type: string
+            enum: [document.uploaded, document.processed, document.downloaded, document.quarantined, folder.created, folder.updated]
+          description: Updated events to subscribe to
+          example: ["document.processed", "document.quarantined", "document.downloaded"]
+        description:
+          type: string
+          description: Updated webhook description
+          example: "Webhook for all document events"
+        secret:
+          type: string
+          description: New secret key for webhook signature validation
+          example: "your-new-secret-key"
+        active:
+          type: boolean
+          description: Whether the webhook is active
+          example: true
+
+    WebhookDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Webhook ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        url:
+          type: string
+          format: uri
+          description: Webhook endpoint URL
+          example: "https://api.example.com/webhooks/docevents"
+        events:
+          type: array
+          items:
+            type: string
+          description: Events subscribed to
+          example: ["document.processed", "document.quarantined"]
+        description:
+          type: string
+          description: Webhook description
+          example: "Webhook for document processing events"
+        active:
+          type: boolean
+          description: Whether the webhook is active
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Webhook creation timestamp
+          example: "2023-01-15T14:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Webhook last update timestamp
+          example: "2023-01-15T14:30:00Z"
+
+    WebhookListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookDTO'
+          description: List of webhooks
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+          description: Pagination information
+
+    PaginationInfo:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        pageSize:
+          type: integer
+          description: Number of items per page
+          example: 20
+        totalItems:
+          type: integer
+          description: Total number of items
+          example: 42
+        totalPages:
+          type: integer
+          description: Total number of pages
+          example: 3
+        hasNext:
+          type: boolean
+          description: Whether there are more pages
+          example: true
+        hasPrevious:
+          type: boolean
+          description: Whether there are previous pages
+          example: false
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: Health status
+          example: ok
+        message:
+          type: string
+          description: Additional status information
+          example: Service is healthy
+        timestamp:
+          type: string
+          format: date-time
+          description: Time of health check
+          example: "2023-01-15T14:30:00Z"
+
+    DeepHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: Overall health status
+          example: ok
+        components:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [ok, error, degraded]
+                description: Component health status
+                example: ok
+              message:
+                type: string
+                description: Component status details
+                example: Database connection successful
+          description: Health status of individual system components
+          example:
+            database:
+              status: ok
+              message: Database connection successful
+            storage:
+              status: ok
+              message: Storage service accessible
+            search:
+              status: ok
+              message: Search engine operational
+        timestamp:
+          type: string
+          format: date-time
+          description: Time of health check
+          example: "2023-01-15T14:30:00Z"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: unauthorized
+        message:
+          type: string
+          description: Error message
+          example: Authentication credentials are missing or invalid
+        timestamp:
+          type: string
+          format: date-time
+          description: Time of error
+          example: "2023-01-15T14:30:00Z"
+        requestId:
+          type: string
+          description: Request ID for tracing
+          example: 123e4567-e89b-12d3-a456-426614174000
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: validation_error
+        message:
+          type: string
+          description: General error message
+          example: Request validation failed
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Field with validation error
+                example: name
+              message:
+                type: string
+                description: Validation error message
+                example: Name cannot be empty
+          description: Detailed validation errors
+        timestamp:
+          type: string
+          format: date-time
+          description: Time of error
+          example: "2023-01-15T14:30:00Z"
+        requestId:
+          type: string
+          description: Request ID for tracing
+          example: 123e4567-e89b-12d3-a456-426614174000
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Response message
+          example: Operation completed successfully
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp
+          example: "2023-01-15T14:30:00Z"
