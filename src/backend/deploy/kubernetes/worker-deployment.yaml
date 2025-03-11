@@ -1,0 +1,167 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-worker
+  labels:
+    app: document-management
+    component: worker
+    part-of: document-platform
+  annotations:
+    kubernetes.io/description: "Worker service for the Document Management Platform"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: document-management
+      component: worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: document-management
+        component: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: worker
+        image: "{{.Values.image.repository}}/document-worker:{{.Values.image.tag}}"
+        imagePullPolicy: Always
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        env:
+        - name: CONFIG_FILE
+          value: "/app/config/production.yml"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: DATABASE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-host
+        - name: DATABASE_PORT
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-port
+        - name: DATABASE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-username
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-password
+        - name: DATABASE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-name
+        - name: STORAGE_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: aws-region
+        - name: STORAGE_TEMP_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: s3-temp-bucket
+        - name: STORAGE_PERMANENT_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: s3-permanent-bucket
+        - name: STORAGE_QUARANTINE_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: s3-quarantine-bucket
+        - name: STORAGE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: aws-access-key
+        - name: STORAGE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: aws-secret-key
+        - name: VIRUS_SCAN_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: clamav-endpoint
+        - name: MESSAGING_DOCUMENT_QUEUE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: sqs-document-queue
+        - name: MESSAGING_SCAN_QUEUE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: sqs-scan-queue
+        - name: MESSAGING_EVENT_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: sns-event-topic
+        - name: BATCH_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: max-batch-size
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: config-volume
+        configMap:
+          name: app-config
+      - name: tmp-volume
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      serviceAccountName: document-worker-sa
+      terminationGracePeriodSeconds: 60
