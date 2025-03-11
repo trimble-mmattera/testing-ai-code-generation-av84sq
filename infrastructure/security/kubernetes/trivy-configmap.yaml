@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-config
+  namespace: security
+  labels:
+    app: trivy
+    component: security-scanner
+  annotations:
+    description: "Configuration for Trivy vulnerability scanner"
+data:
+  severity-levels: "CRITICAL,HIGH,MEDIUM"
+  report-format: "json"
+  timeout: "30m"
+  scan-targets: "ecr.repository/document-mgmt-api:latest ecr.repository/document-mgmt-worker:latest"
+  results-bucket: "document-mgmt-security-scans"
+  notification-topic: "arn:aws:sns:us-west-2:123456789012:trivy-scan-notifications"
+  aws-region: "us-west-2"
+  ignore-unfixed: "true"
+  compliance-standards: "soc2,iso27001"
+  compliance-report-file: "/tmp/compliance-report.json"
+  cache-dir: "/root/.cache"
+  skip-dirs: "node_modules,vendor,test/testdata"
+  skip-files: "**/*.md,**/*.txt"
+  vuln-type: "os,library"
+  exit-code: "0"
